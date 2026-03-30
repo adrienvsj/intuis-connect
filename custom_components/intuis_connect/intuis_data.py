@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from homeassistant.helpers.update_coordinator import UpdateFailed
+
 from .entity.intuis_home import IntuisHome
 from .entity.intuis_home_config import IntuisHomeConfig
 from .intuis_api.api import IntuisAPI, APIError, CannotConnect, RateLimitError
@@ -239,7 +241,13 @@ class IntuisData:
         if overrides_changed and self._save_overrides:
             await self._save_overrides()
 
-        config = IntuisHomeConfig.from_dict(await self._api.async_get_config())
+        try:
+            config = IntuisHomeConfig.from_dict(await self._api.async_get_config())
+        except ValueError as err:
+            _LOGGER.warning(
+                "API returned empty config (no modules), skipping this cycle: %s", err
+            )
+            raise UpdateFailed(f"Transient API config error: {err}") from err
 
         # Fetch energy data (daily kWh per room)
         await self._fetch_energy_data(data_by_room, now)

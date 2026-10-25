@@ -1,15 +1,12 @@
 """Tests for schedule timetable helper functions."""
 from __future__ import annotations
 
-import pytest
-
 # Import the functions under test
 from custom_components.intuis_connect.timetable import (
     find_zone_at_offset,
-    upsert_timetable_entry,
     remove_consecutive_duplicates,
+    upsert_timetable_entry,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test: _find_zone_at_offset

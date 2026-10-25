@@ -4,7 +4,6 @@ import logging
 from typing import Any
 
 from ..entity.intuis_module import IntuisModule, NMHIntuisModule
-
 from ..utils.const import (
     API_MODE_OFF,
     HEATING_THRESHOLD_DELTA,

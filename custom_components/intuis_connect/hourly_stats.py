@@ -36,12 +36,12 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
     async_import_statistics,
     get_last_statistics,
     statistics_during_period,
 )
-from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.const import UnitOfEnergy
 from homeassistant.helpers.storage import Store
 
@@ -49,8 +49,9 @@ from .utils.const import DOMAIN, HISTORY_IMPORT_KEY
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
-    from .intuis_api.api import IntuisAPI
+
     from .entity.intuis_home import IntuisHome
+    from .intuis_api.api import IntuisAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ class HourlyStatsUpdater:
 
     def _migrate_to_midnight_bases(self) -> None:
         """Migrate old base_kwh + sensor_base storage to midnight_bases dict."""
-        from datetime import date, timedelta
+        from datetime import timedelta
         now_local = datetime.now(self._timezone)
         today_key = now_local.strftime("%Y-%m-%d")
         yesterday_key = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -442,7 +443,7 @@ class HourlyStatsUpdater:
         _LOGGER.debug(
             "%s: prev_sum=%s, prev_start=%s",
             statistic_id,
-            ("%.3f" % prev_sum) if prev_sum is not None else "None",
+            f"{prev_sum:.3f}" if prev_sum is not None else "None",
             prev_start,
         )
 
@@ -779,7 +780,7 @@ class HourlyStatsUpdater:
                     timeout=self._update_interval * 60,
                 )
                 break
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def async_rebase_daily(self) -> None:

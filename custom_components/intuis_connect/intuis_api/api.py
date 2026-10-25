@@ -4,39 +4,40 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 
 import aiohttp
 
 from ..entity.intuis_home import IntuisHome
 from ..utils.const import (
-    BASE_URLS,
-    AUTH_PATH,
-    HOMESDATA_PATH,
-    HOMESTATUS_PATH,
-    SETSTATE_PATH,
-    ROOMMEASURE_PATH,
-    ENERGY_MEASURE_TYPES,
-    CLIENT_ID,
-    CLIENT_SECRET,
-    AUTH_SCOPE,
-    USER_PREFIX,
     APP_TYPE,
     APP_VERSION,
+    AUTH_PATH,
+    AUTH_SCOPE,
+    BASE_URLS,
+    CLIENT_ID,
+    CLIENT_SECRET,
+    CONFIG_PATH,
+    DEFAULT_CIRCUIT_THRESHOLD,
     DEFAULT_MANUAL_DURATION,
-    ENERGY_BASE,
-    GET_SCHEDULE_PATH,
-    SET_SCHEDULE_PATH,
+    DEFAULT_MIN_REQUEST_DELAY,
+    DEFAULT_RATE_LIMIT_ATTEMPTS,
+    DEFAULT_RATE_LIMIT_DELAY,
+    DEFAULT_RATE_LIMIT_MAX_DELAY,
     DELETE_SCHEDULE_PATH,
+    ENERGY_BASE,
+    ENERGY_MEASURE_TYPES,
+    GET_SCHEDULE_PATH,
+    HOMESDATA_PATH,
+    HOMESTATUS_PATH,
+    ROOMMEASURE_PATH,
+    SET_SCHEDULE_PATH,
+    SETSTATE_PATH,
     SWITCH_SCHEDULE_PATH,
     SYNCHOMESCHEDULE_PATH,
-    CONFIG_PATH,
-    DEFAULT_RATE_LIMIT_DELAY,
-    DEFAULT_CIRCUIT_THRESHOLD,
-    DEFAULT_MIN_REQUEST_DELAY,
-    DEFAULT_RATE_LIMIT_MAX_DELAY,
-    DEFAULT_RATE_LIMIT_ATTEMPTS,
+    USER_PREFIX,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -452,7 +453,7 @@ class IntuisAPI:
                     pass
                 _LOGGER.error("API request failed for %s: %s%s", path, e, error_details)
                 raise APIError(f"Request failed for {path}: {e.status}{error_details}") from e
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 last_exc = e
                 if attempt < server_attempts:
                     _LOGGER.warning(
@@ -521,7 +522,7 @@ class IntuisAPI:
                         _LOGGER.warning(
                             "Login response on %s did not contain access_token", base
                         )
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 _LOGGER.warning("Client error during login on %s: %s", base, e)
                 connection_failed = True
                 continue
@@ -595,7 +596,7 @@ class IntuisAPI:
                     _LOGGER.warning("Token refresh failed with status %s", resp.status)
                     raise CannotConnect(f"Token refresh failed with status {resp.status}")
                 data = await resp.json()
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+        except (TimeoutError, aiohttp.ClientError, ValueError) as err:
             _LOGGER.warning("Token refresh failed: %s", err)
             raise CannotConnect("Token refresh failed") from err
         if not isinstance(data, dict) or "access_token" not in data:
@@ -796,7 +797,7 @@ class IntuisAPI:
             except RateLimitError as e:
                 _LOGGER.warning("Rate limited while fetching energy, stopping: %s", e)
                 break
-            except (APIError, CannotConnect, aiohttp.ClientError, asyncio.TimeoutError) as e:
+            except (TimeoutError, APIError, CannotConnect, aiohttp.ClientError) as e:
                 # Left out of the result: reporting 0 Wh would look like a reset
                 _LOGGER.warning(
                     "Failed to get energy for room %s: %s", room_id, e

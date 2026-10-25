@@ -4,12 +4,14 @@ from __future__ import annotations
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from homeassistant.components.climate import HVACMode
 from homeassistant.core import is_callback
 
 from custom_components.intuis_connect.entity.intuis_home_config import IntuisHomeConfig
-from custom_components.intuis_connect.entity.intuis_room import IntuisRoom, IntuisRoomDefinition
+from custom_components.intuis_connect.entity.intuis_room import (
+    IntuisRoom,
+    IntuisRoomDefinition,
+)
 from custom_components.intuis_connect.intuis_api.api import APIError
 from custom_components.intuis_connect.intuis_api.mapper import extract_rooms
 from custom_components.intuis_connect.intuis_data import IntuisData

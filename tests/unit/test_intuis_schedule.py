@@ -1,22 +1,22 @@
 """Tests for IntuisSchedule entities."""
 from __future__ import annotations
 
-import pytest
 from typing import Any
 
+import pytest
+
 from custom_components.intuis_connect.entity.intuis_schedule import (
+    IntuisElectricitySchedule,
+    IntuisElectricityZone,
+    IntuisEventSchedule,
+    IntuisEventZone,
+    IntuisRoomTemperature,
     IntuisSchedule,
     IntuisScheduleRoom,
-    IntuisRoomTemperature,
-    IntuisThermZone,
-    IntuisElectricityZone,
-    IntuisEventZone,
-    IntuisTimetable,
     IntuisThermSchedule,
-    IntuisElectricitySchedule,
-    IntuisEventSchedule,
+    IntuisThermZone,
+    IntuisTimetable,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test: IntuisRoomTemperature

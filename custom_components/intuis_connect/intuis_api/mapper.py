@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime
-from typing import Any, List
+from typing import Any
 
 from ..entity.intuis_module import IntuisModule
 from ..entity.intuis_room import IntuisRoom, IntuisRoomDefinition
@@ -11,10 +11,10 @@ _LOGGER = logging.getLogger(__name__)
 # Room IDs already reported as unknown, so the warning is logged once per room
 _skipped_rooms: set[str | None] = set()
 
-def extract_modules(home: dict[str, Any]) -> List[IntuisModule]:
+def extract_modules(home: dict[str, Any]) -> list[IntuisModule]:
     modules_raw: list[dict[str, Any]] = home.get("modules", [])
     # --- process modules ---
-    modules: List[IntuisModule] = []
+    modules: list[IntuisModule] = []
     for module in modules_raw:
         mid = module.get("id", "unknown")
         try:

@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-
 from pathlib import Path
 
 from homeassistant.components.http import HomeAssistantView
@@ -13,61 +12,50 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .intuis_api.api import IntuisAPI, InvalidAuth, CannotConnect, APIError, RateLimitError
-from .utils.const import (
-    DOMAIN,
-    CONF_REFRESH_TOKEN,
-    CONF_HOME_ID,
-    CONF_HOME_NAME,
-    CONF_IMPORT_HISTORY,
-    CONF_IMPORT_HISTORY_DAYS,
-    CONF_HOURLY_STATS_ENABLED,
-    CONF_HOURLY_STATS_INTERVAL,
-    DEFAULT_UPDATE_INTERVAL,
-    DEFAULT_HOURLY_STATS_ENABLED,
-    DEFAULT_HOURLY_STATS_INTERVAL,
-    CONF_RATE_LIMIT_DELAY,
-    CONF_CIRCUIT_BREAKER_THRESHOLD,
-    CONF_MIN_REQUEST_DELAY,
-    CONF_MAX_UPDATE_INTERVAL,
-    DEFAULT_RATE_LIMIT_DELAY,
-    DEFAULT_CIRCUIT_THRESHOLD,
-    DEFAULT_MIN_REQUEST_DELAY,
-    DEFAULT_MAX_UPDATE_INTERVAL,
-    CONF_ENERGY_RESET_HOUR,
-    DEFAULT_ENERGY_RESET_HOUR,
-    CONF_ENERGY_COST_ENABLED,
-    DEFAULT_ENERGY_COST_ENABLED,
-)
+from .cost_stats import CostStatsUpdater
 from .entity.intuis_entity import IntuisDataUpdateCoordinator
 from .history_import import (
     HistoryImportManager,
     async_import_energy_history,
 )
 from .hourly_stats import HourlyStatsUpdater
-from .cost_stats import CostStatsUpdater
+from .intuis_api.api import (
+    APIError,
+    CannotConnect,
+    IntuisAPI,
+    InvalidAuth,
+    RateLimitError,
+)
 from .intuis_data import IntuisData
 from .services import (
     async_generate_services_yaml,
     async_register_services,
-    SERVICE_SWITCH_SCHEDULE,
-    SERVICE_REFRESH_SCHEDULES,
-    SERVICE_SET_SCHEDULE_SLOT,
-    SERVICE_SET_ZONE_TEMPERATURE,
-    SERVICE_IMPORT_ENERGY_HISTORY,
-    ATTR_SCHEDULE_NAME,
-    ATTR_DAY,
-    ATTR_START_DAY,
-    ATTR_END_DAY,
-    ATTR_START_TIME,
-    ATTR_END_TIME,
-    ATTR_ZONE_NAME,
-    ATTR_ROOM_NAME,
-    ATTR_TEMPERATURE,
-    ATTR_DAYS,
+)
+from .utils.const import (
+    CONF_CIRCUIT_BREAKER_THRESHOLD,
+    CONF_ENERGY_COST_ENABLED,
+    CONF_HOME_ID,
+    CONF_HOME_NAME,
+    CONF_HOURLY_STATS_ENABLED,
+    CONF_HOURLY_STATS_INTERVAL,
+    CONF_IMPORT_HISTORY,
+    CONF_IMPORT_HISTORY_DAYS,
+    CONF_MAX_UPDATE_INTERVAL,
+    CONF_MIN_REQUEST_DELAY,
+    CONF_RATE_LIMIT_DELAY,
+    CONF_REFRESH_TOKEN,
+    DEFAULT_CIRCUIT_THRESHOLD,
+    DEFAULT_ENERGY_COST_ENABLED,
+    DEFAULT_HOURLY_STATS_ENABLED,
+    DEFAULT_HOURLY_STATS_INTERVAL,
+    DEFAULT_MAX_UPDATE_INTERVAL,
+    DEFAULT_MIN_REQUEST_DELAY,
+    DEFAULT_RATE_LIMIT_DELAY,
+    DEFAULT_UPDATE_INTERVAL,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -122,10 +110,10 @@ async def _async_migrate_cost_entity_ids(hass, entry, intuis_home) -> None:
     4. Removes any HA-generated virtual 'sensor.X_energy_cost' (state=unavailable)
     """
     from homeassistant.components.recorder import get_instance
-    from homeassistant.components.recorder.db_schema import StatisticsMeta, Statistics, StatisticsShortTerm
-    from homeassistant.helpers.recorder import session_scope
+    from homeassistant.components.recorder.db_schema import StatisticsMeta
     from homeassistant.helpers import entity_registry as er
-    from sqlalchemy import delete, update, select
+    from homeassistant.helpers.recorder import session_scope
+    from sqlalchemy import select, update
 
     ent_reg = er.async_get(hass)
     instance = get_instance(hass)
@@ -232,8 +220,8 @@ class IntuisPlanningView(HomeAssistantView):
 
     async def get(self, request):
         """Return the planning HTML file."""
-        from aiohttp.web import Response, HTTPNotFound
-        import asyncio
+
+        from aiohttp.web import HTTPNotFound, Response
         if not self._html_path.exists():
             raise HTTPNotFound()
         # Cache-busting: if client sends matching ETag, return 304
@@ -574,7 +562,7 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     "Migration: Could not fetch home name from API: %s",
                     err,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.warning(
                     "Migration: Timeout while fetching home name from API"
                 )

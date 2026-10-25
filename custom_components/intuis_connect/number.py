@@ -2,24 +2,24 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from homeassistant.components.number import NumberEntity, NumberDeviceClass, NumberMode
+from homeassistant.components.number import NumberDeviceClass, NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .entity.intuis_entity import IntuisDataUpdateCoordinator
 from .entity.intuis_schedule import (
+    IntuisRoomTemperature,
     IntuisThermSchedule,
     IntuisThermZone,
-    IntuisRoomTemperature,
 )
-from .intuis_api.api import IntuisAPI, APIError, CannotConnect, RateLimitError
+from .intuis_api.api import APIError, CannotConnect, IntuisAPI, RateLimitError
 from .utils.const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)

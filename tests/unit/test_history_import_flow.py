@@ -1,7 +1,7 @@
 """History import and daily energy behaviour (real recorder where it matters)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
@@ -17,7 +17,10 @@ from custom_components.intuis_connect.history_import import (
     HistoryImportManager,
     async_import_energy_history,
 )
-from custom_components.intuis_connect.intuis_api.api import CannotConnect, RateLimitError
+from custom_components.intuis_connect.intuis_api.api import (
+    CannotConnect,
+    RateLimitError,
+)
 from custom_components.intuis_connect.intuis_data import IntuisData
 from custom_components.intuis_connect.utils.const import DOMAIN, HISTORY_IMPORT_KEY
 
@@ -65,7 +68,7 @@ async def _run(hass, api, home, days=50):
 
 async def _rows(hass, entity_id):
     stats = await get_instance(hass).async_add_executor_job(
-        statistics_during_period, hass, datetime(2026, 1, 1, tzinfo=timezone.utc), None,
+        statistics_during_period, hass, datetime(2026, 1, 1, tzinfo=UTC), None,
         {entity_id}, "hour", None, {"sum"},
     )
     return stats.get(entity_id, [])
@@ -101,7 +104,7 @@ async def test_failed_chunk_skips_the_room(recorder_hass):
     entity_id = _register(hass)
     api = MagicMock()
     api.async_get_room_energy_hourly = AsyncMock(
-        side_effect=[[(int(datetime(2026, 9, 1, tzinfo=timezone.utc).timestamp()), 100)], CannotConnect("down")]
+        side_effect=[[(int(datetime(2026, 9, 1, tzinfo=UTC).timestamp()), 100)], CannotConnect("down")]
     )
     api.circuit_breaker.check.return_value = 0
 

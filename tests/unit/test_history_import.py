@@ -1,14 +1,15 @@
 """Tests for historical energy import functionality."""
 from __future__ import annotations
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from custom_components.intuis_connect.history_import import (
-    _get_existing_statistics,
-    _get_baseline_sum,
     _clear_statistics_in_range,
+    _get_baseline_sum,
+    _get_existing_statistics,
 )
 
 
@@ -36,7 +37,7 @@ class TestGetExistingStatistics:
             result = await _get_existing_statistics(
                 mock_hass,
                 "sensor.energy",
-                datetime(2024, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 1, 1, tzinfo=UTC),
             )
 
         assert result == mock_stats
@@ -55,7 +56,7 @@ class TestGetExistingStatistics:
             result = await _get_existing_statistics(
                 mock_hass,
                 "sensor.energy",
-                datetime(2024, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 1, 1, tzinfo=UTC),
             )
 
         assert result == []
@@ -74,7 +75,7 @@ class TestGetExistingStatistics:
             result = await _get_existing_statistics(
                 mock_hass,
                 "sensor.energy",
-                datetime(2024, 1, 1, tzinfo=timezone.utc),
+                datetime(2024, 1, 1, tzinfo=UTC),
             )
 
         assert result == []
@@ -86,8 +87,8 @@ class TestGetExistingStatistics:
         mock_instance = MagicMock()
         mock_instance.async_add_executor_job = AsyncMock(return_value={})
 
-        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        end = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 6, 1, tzinfo=UTC)
 
         with patch(
             "custom_components.intuis_connect.history_import.get_instance",
@@ -118,7 +119,7 @@ class TestGetBaselineSum:
                 mock_hass,
                 "sensor.energy",
                 "Living Room",
-                datetime(2025, 11, 19, tzinfo=timezone.utc),
+                datetime(2025, 11, 19, tzinfo=UTC),
             )
 
         assert result == 0.0
@@ -144,7 +145,7 @@ class TestGetBaselineSum:
                 mock_hass,
                 "sensor.energy",
                 "Living Room",
-                datetime(2025, 11, 19, tzinfo=timezone.utc),
+                datetime(2025, 11, 19, tzinfo=UTC),
             )
 
         # Should return the last entry's sum
@@ -168,7 +169,7 @@ class TestGetBaselineSum:
                 mock_hass,
                 "sensor.energy",
                 "Living Room",
-                datetime(2025, 11, 19, tzinfo=timezone.utc),
+                datetime(2025, 11, 19, tzinfo=UTC),
             )
 
         assert result == 0
@@ -177,7 +178,7 @@ class TestGetBaselineSum:
     async def test_queries_correct_time_range(self):
         """Should query from 730 days before import start to import start."""
         mock_hass = MagicMock()
-        import_start = datetime(2025, 11, 19, tzinfo=timezone.utc)
+        import_start = datetime(2025, 11, 19, tzinfo=UTC)
 
         with patch(
             "custom_components.intuis_connect.history_import._get_existing_statistics",
@@ -242,7 +243,7 @@ class TestBaselineIntegration:
                 mock_hass,
                 "sensor.energy",
                 "Living Room",
-                datetime(2025, 11, 19, tzinfo=timezone.utc),
+                datetime(2025, 11, 19, tzinfo=UTC),
             )
 
         assert baseline == 450.0
@@ -267,7 +268,7 @@ class TestBaselineIntegration:
                 mock_hass,
                 "sensor.energy",
                 "Living Room",
-                datetime(2025, 11, 19, tzinfo=timezone.utc),
+                datetime(2025, 11, 19, tzinfo=UTC),
             )
 
         assert baseline == 0.0
@@ -308,8 +309,8 @@ class TestClearStatisticsInRange:
             result = await _clear_statistics_in_range(
                 mock_hass,
                 "sensor.energy",
-                datetime(2025, 11, 19, tzinfo=timezone.utc),
-                datetime(2026, 1, 3, tzinfo=timezone.utc),
+                datetime(2025, 11, 19, tzinfo=UTC),
+                datetime(2026, 1, 3, tzinfo=UTC),
             )
 
         # When no metadata found, should return 0
@@ -330,8 +331,8 @@ class TestClearStatisticsInRange:
             result = await _clear_statistics_in_range(
                 mock_hass,
                 "sensor.energy",
-                datetime(2025, 11, 19, tzinfo=timezone.utc),
-                datetime(2026, 1, 3, tzinfo=timezone.utc),
+                datetime(2025, 11, 19, tzinfo=UTC),
+                datetime(2026, 1, 3, tzinfo=UTC),
             )
 
         assert result == 0

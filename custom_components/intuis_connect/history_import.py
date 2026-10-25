@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.db_schema import (
     Statistics,
-    StatisticsShortTerm,
     StatisticsMeta,
+    StatisticsShortTerm,
 )
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
@@ -28,20 +28,20 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.recorder import session_scope
 from homeassistant.helpers.storage import Store
-from sqlalchemy import delete, select, and_
+from sqlalchemy import and_, delete, select
 
-from .utils.const import (
-    DOMAIN,
-    API_DATA_DELAY_HOURS,
-    MAX_DAYS_PER_HOURLY_REQUEST,
-    HISTORY_IMPORT_KEY,
-)
-from .intuis_api.api import RateLimitError, APIError, CannotConnect
 from .hourly_stats import IMPORT_SETTLE_MINUTES, HourlyStatsUpdater
+from .intuis_api.api import APIError, CannotConnect, RateLimitError
+from .utils.const import (
+    API_DATA_DELAY_HOURS,
+    DOMAIN,
+    HISTORY_IMPORT_KEY,
+    MAX_DAYS_PER_HOURLY_REQUEST,
+)
 
 if TYPE_CHECKING:
-    from .intuis_api.api import IntuisAPI
     from .entity.intuis_home import IntuisHome
+    from .intuis_api.api import IntuisAPI
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -389,8 +389,8 @@ class HistoryImportManager:
 
 async def async_import_energy_history(
     hass: HomeAssistant,
-    api: "IntuisAPI",
-    intuis_home: "IntuisHome",
+    api: IntuisAPI,
+    intuis_home: IntuisHome,
     manager: HistoryImportManager,
     days: int = DEFAULT_HISTORY_DAYS,
     room_filter: str | None = None,
@@ -487,7 +487,7 @@ async def async_import_energy_history(
         days,
     )
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     results = {
         "rooms_imported": 0,
         "total_energy_kwh": 0.0,
@@ -513,16 +513,16 @@ async def async_import_energy_history(
     _midnight_ts_by_day: dict[str, int] = {}
     for _d in range(0, days + 2):  # +2 for safety margin
         _m_local = _today_midnight_local - timedelta(days=_d)
-        _m_utc_ts = int(_m_local.astimezone(timezone.utc).timestamp())
+        _m_utc_ts = int(_m_local.astimezone(UTC).timestamp())
         # HA stat whose hour ENDS at midnight: start = midnight_utc - 1h
         _midnight_ts_by_day[_m_local.strftime("%Y-%m-%d")] = _m_utc_ts - 3600
 
     # Legacy ts keys (kept for fallback logic below)
     _yesterday_midnight_utc_ts = int(
-        _yesterday_midnight_local.astimezone(timezone.utc).timestamp()
+        _yesterday_midnight_local.astimezone(UTC).timestamp()
     )
     _today_midnight_utc_ts = int(
-        _today_midnight_local.astimezone(timezone.utc).timestamp()
+        _today_midnight_local.astimezone(UTC).timestamp()
     )
     _base_kwh_stat_ts = _yesterday_midnight_utc_ts - 3600
     _sensor_base_stat_ts = _today_midnight_utc_ts - 3600
@@ -555,7 +555,7 @@ async def async_import_energy_history(
             import_start_time = datetime.combine(
                 import_start_date.date(),
                 datetime.min.time(),
-                tzinfo=timezone.utc
+                tzinfo=UTC
             )
 
             # No clear needed: async_import_statistics with source="recorder" does
@@ -602,7 +602,7 @@ async def async_import_energy_history(
                 date_begin_dt = datetime.combine(
                     range_start.date(),
                     datetime.min.time(),
-                    tzinfo=timezone.utc
+                    tzinfo=UTC
                 )
                 date_end_dt = data_cutoff
 
@@ -719,7 +719,7 @@ async def async_import_energy_history(
                             
                         # Create a statistic entry
                         # Normalize timestamp to the top of the hour (required by HA)
-                        entry_start = datetime.fromtimestamp(ts, tz=timezone.utc)
+                        entry_start = datetime.fromtimestamp(ts, tz=UTC)
                         entry_start = entry_start.replace(minute=0, second=0, microsecond=0)
                         
                         statistics.append(
@@ -765,7 +765,7 @@ async def async_import_energy_history(
                 manager.status = "rate_limited"
                 manager.last_error = f"Rate limited by API: {err}"
 
-            except (APIError, CannotConnect, asyncio.TimeoutError) as err:
+            except (TimeoutError, APIError, CannotConnect) as err:
                 _LOGGER.warning(
                     "Failed to fetch energy for %s: %s",
                     room_name,
@@ -778,7 +778,9 @@ async def async_import_energy_history(
                 try:
                     # Use StatisticMeanType if available (HA 2025.11+)
                     try:
-                        from homeassistant.components.recorder.models import StatisticMeanType
+                        from homeassistant.components.recorder.models import (
+                            StatisticMeanType,
+                        )
                         metadata = StatisticMetaData(
                             source="recorder",
                             statistic_id=entity_id,

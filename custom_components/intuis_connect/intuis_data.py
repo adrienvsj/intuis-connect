@@ -4,33 +4,32 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-
 from .entity.intuis_home import IntuisHome
 from .entity.intuis_home_config import IntuisHomeConfig
-from .intuis_api.api import IntuisAPI, APIError, CannotConnect, RateLimitError
+from .intuis_api.api import APIError, CannotConnect, IntuisAPI, RateLimitError
 from .intuis_api.mapper import extract_modules, extract_rooms
 from .utils.const import (
     API_MODE_AWAY,
     API_MODE_BOOST,
     API_MODE_HG,
-    DEFAULT_MANUAL_DURATION,
-    DEFAULT_AWAY_DURATION,
-    DEFAULT_BOOST_DURATION,
-    DEFAULT_FROST_PROTECT_DURATION,
-    CONF_INDEFINITE_MODE,
-    CONF_MANUAL_DURATION,
     CONF_AWAY_DURATION,
     CONF_BOOST_DURATION,
-    CONF_FROST_PROTECT_DURATION,
-    CONF_ENERGY_SCALE,
     CONF_ENERGY_RESET_HOUR,
-    DEFAULT_INDEFINITE_MODE,
-    DEFAULT_ENERGY_SCALE,
+    CONF_ENERGY_SCALE,
+    CONF_FROST_PROTECT_DURATION,
+    CONF_INDEFINITE_MODE,
+    CONF_MANUAL_DURATION,
+    DEFAULT_AWAY_DURATION,
+    DEFAULT_BOOST_DURATION,
     DEFAULT_ENERGY_RESET_HOUR,
+    DEFAULT_ENERGY_SCALE,
+    DEFAULT_FROST_PROTECT_DURATION,
+    DEFAULT_INDEFINITE_MODE,
+    DEFAULT_MANUAL_DURATION,
 )
 
 # Re-apply override this many seconds before it expires (when indefinite mode is on)

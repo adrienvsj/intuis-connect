@@ -117,7 +117,7 @@ class IntuisThermZone(IntuisZone):
         self.rooms = rooms
 
     @staticmethod
-    def from_dict(data: dict[str, Any], type: str) -> IntuisThermZone | None:  # noqa: ARG004
+    def from_dict(data: dict[str, Any], type: str) -> IntuisThermZone | None:
         """Create a zone from a dictionary.
 
         Args:
@@ -162,7 +162,7 @@ class IntuisElectricityZone(IntuisZone):
         self.price = price
 
     @staticmethod
-    def from_dict(data: dict[str, Any], type: str) -> IntuisElectricityZone | None:  # noqa: ARG004
+    def from_dict(data: dict[str, Any], type: str) -> IntuisElectricityZone | None:
         """Create a price zone from a dictionary.
 
         Args:
@@ -215,7 +215,7 @@ class IntuisEventZone(IntuisZone):
         ]
 
     @staticmethod
-    def from_dict(data: dict[str, Any], type: str) -> IntuisEventZone | None:  # noqa: ARG004
+    def from_dict(data: dict[str, Any], type: str) -> IntuisEventZone | None:
         """Create an event zone from a dictionary.
 
         Returns None if the data is malformed (missing required fields).

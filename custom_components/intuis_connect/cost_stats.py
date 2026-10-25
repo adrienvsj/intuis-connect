@@ -32,20 +32,20 @@ from homeassistant.components.recorder.statistics import async_import_statistics
 from homeassistant.helpers.storage import Store
 
 from .utils.const import (
-    DOMAIN,
-    HISTORY_IMPORT_KEY,
     CONF_ENERGY_COST_ENABLED,
-    CONF_ENERGY_PRICE_MODE,
     CONF_ENERGY_FIXED_PRICE,
     CONF_ENERGY_PRICE_ENTITY,
+    CONF_ENERGY_PRICE_MODE,
     DEFAULT_ENERGY_COST_ENABLED,
-    DEFAULT_ENERGY_PRICE_MODE,
     DEFAULT_ENERGY_FIXED_PRICE,
     DEFAULT_ENERGY_PRICE_ENTITY,
+    DEFAULT_ENERGY_PRICE_MODE,
+    DOMAIN,
 )
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
     from .entity.intuis_home import IntuisHome
 
 _LOGGER = logging.getLogger(__name__)
@@ -303,7 +303,9 @@ class CostStatsUpdater:
         recorder for each room and extracts the sum at midnight local time.
         """
         from homeassistant.components.recorder import get_instance
-        from homeassistant.components.recorder.statistics import statistics_during_period
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,
+        )
 
         now_local = datetime.now(self._timezone)
         start_utc = (now_local - timedelta(days=3)).replace(
@@ -605,7 +607,9 @@ class CostStatsUpdater:
             _LOGGER.error("No price data — cannot recalculate cost history")
             return 0
 
-        from homeassistant.components.recorder.statistics import statistics_during_period
+        from homeassistant.components.recorder.statistics import (
+            statistics_during_period,
+        )
 
         total = 0
         rooms_to_process = (
@@ -668,7 +672,6 @@ class CostStatsUpdater:
             else:
                 # Partial recalc: try to start from last known cost before window
                 cost_anchor_sum = 0.0
-                existing_anchors = self._data.get("anchors", {}).get(cost_sid, {})
                 # We can't easily get the cost at start_utc without querying LTS again.
                 # For simplicity, reset for partial recalc too.
                 # A future improvement: query cost LTS at start_utc.

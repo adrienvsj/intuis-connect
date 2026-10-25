@@ -30,27 +30,30 @@ from homeassistant.helpers.selector import (
     TimeSelectorConfig,
 )
 
+from .entity.intuis_home import IntuisHome
+from .entity.intuis_schedule import (
+    IntuisThermSchedule,
+    IntuisThermZone,
+    IntuisTimetable,
+)
 from .history_import import (
-    HistoryImportManager,
-    async_import_energy_history,
     DEFAULT_HISTORY_DAYS,
     MAX_HISTORY_DAYS,
+    HistoryImportManager,
+    async_import_energy_history,
 )
-
-from .entity.intuis_home import IntuisHome
-from .entity.intuis_schedule import IntuisThermSchedule, IntuisThermZone, IntuisTimetable
-from .intuis_api.api import IntuisAPI, APIError, CannotConnect, RateLimitError
+from .intuis_api.api import APIError, CannotConnect, IntuisAPI, RateLimitError
 from .timetable import (
-    apply_slot,
-    remove_consecutive_duplicates,
     DAYS_OF_WEEK,
     DAYS_OF_WEEK_LABELS,
     MINUTES_PER_DAY,
+    apply_slot,
+    remove_consecutive_duplicates,
 )
 from .utils.const import DOMAIN
 
 if TYPE_CHECKING:
-    from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+    pass
 
 _LOGGER = logging.getLogger(__name__)
 

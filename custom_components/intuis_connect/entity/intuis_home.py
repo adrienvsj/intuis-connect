@@ -6,7 +6,7 @@ Author: Your Name • Licence: MIT
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Tuple, Dict, Any
+from typing import Any
 
 from ..entity.intuis_room import IntuisRoomDefinition
 from ..entity.intuis_schedule import IntuisSchedule
@@ -20,7 +20,7 @@ class Capability:
     available: bool
 
     @staticmethod
-    def from_dict(data: Dict[str, Any]) -> Capability:
+    def from_dict(data: dict[str, Any]) -> Capability:
         """Create a Capability from a dictionary."""
         return Capability(
             name=data.get("name", ""),
@@ -38,7 +38,7 @@ class IntuisHome:
     def __init__(self,
                  id: str,
                  name: str,
-                 coordinates: Tuple[float, float],
+                 coordinates: tuple[float, float],
                  country: str,
                  timezone: str,
                  altitude: float = None,
@@ -51,13 +51,13 @@ class IntuisHome:
                  therm_setpoint_default_duration: int = None,
                  therm_heating_priority: str = None,
                  anticipation: bool = None,
-                 rooms: Dict[str, IntuisRoomDefinition] = None,
+                 rooms: dict[str, IntuisRoomDefinition] = None,
                  contract_power_unit: str = None,
                  place_improved: bool = None,
                  trust_location: bool = None,
                  therm_absence_location: bool = None,
                  therm_absense_autoway: bool = None,
-                 schedules: List[IntuisSchedule] = None):
+                 schedules: list[IntuisSchedule] = None):
         self.id = id
         self.name = name
         self.coordinates = coordinates
@@ -79,7 +79,7 @@ class IntuisHome:
         self.trust_location = trust_location
         self.therm_absence_location = therm_absence_location
         self.therm_absense_autoway = therm_absense_autoway
-        self.schedules: List[IntuisSchedule] = schedules
+        self.schedules: list[IntuisSchedule] = schedules
 
     # ---------- helpers -----------------------------------------------------
 
@@ -105,7 +105,7 @@ class IntuisHome:
         return self.coordinates[1]
 
     @classmethod
-    def from_api(cls, raw_home: Dict[str, Any]) -> IntuisHome:
+    def from_api(cls, raw_home: dict[str, Any]) -> IntuisHome:
         """Create an IntuisHome from a `/getHomeData` API response."""
         rooms_definitions: dict[str, IntuisRoomDefinition] = {
             r["id"]: IntuisRoomDefinition.from_dict(r)
@@ -119,7 +119,7 @@ class IntuisHome:
             Capability.from_dict(c) for c in raw_home.get("capabilities", [])
         ]
 
-        raw_coordinates: List | None = raw_home.get("coordinates", None)
+        raw_coordinates: list | None = raw_home.get("coordinates", None)
         coordinates: tuple[float, float] | None
         if isinstance(raw_coordinates, list) and len(raw_coordinates) == 2:
             # Ensure coordinates are a tuple of (longitude, latitude)

@@ -2,24 +2,27 @@
 from __future__ import annotations
 
 import logging
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 import homeassistant.util.dt as dt_util
-from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, SensorStateClass
-from homeassistant.const import UnitOfTemperature, UnitOfEnergy, EntityCategory
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTemperature
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .entity.intuis_entity import IntuisEntity
 from .entity.intuis_home_entity import provide_home_sensors
-from .entity.intuis_module import NMHIntuisModule, NMRIntuisModule, IntuisModule
+from .entity.intuis_module import NMHIntuisModule
 from .entity.intuis_room import IntuisRoom
 from .entity.intuis_schedule import IntuisThermSchedule, IntuisThermZone
 from .timetable import MINUTES_PER_DAY
 from .utils.const import (
-    DOMAIN,
     CONF_ENERGY_COST_ENABLED,
     DEFAULT_ENERGY_COST_ENABLED,
+    DOMAIN,
 )
 from .utils.helper import get_basic_utils
 
@@ -415,7 +418,7 @@ class IntuisSetpointEndTimeSensor(IntuisSensor):
         if not end_ts or end_ts == 0:
             return None
         try:
-            return datetime.fromtimestamp(end_ts, tz=timezone.utc)
+            return datetime.fromtimestamp(end_ts, tz=UTC)
         except (ValueError, OSError):
             return None
 
@@ -565,7 +568,7 @@ class ModuleLastSeenSensor(IntuisSensor):
         for module in room.modules:
             if isinstance(module, NMHIntuisModule) and module.id == self._module_id:
                 if module.last_seen:
-                    return datetime.fromtimestamp(module.last_seen, tz=timezone.utc)
+                    return datetime.fromtimestamp(module.last_seen, tz=UTC)
         return None
 
     @property
@@ -577,7 +580,7 @@ class ModuleLastSeenSensor(IntuisSensor):
             for module in room.modules:
                 if isinstance(module, NMHIntuisModule) and module.id == self._module_id:
                     if module.last_seen:
-                        age_seconds = int(datetime.now(timezone.utc).timestamp() - module.last_seen)
+                        age_seconds = int(datetime.now(UTC).timestamp() - module.last_seen)
                         attrs["age_seconds"] = age_seconds
                         attrs["stale"] = age_seconds > 3600  # Stale if > 1 hour
         return attrs

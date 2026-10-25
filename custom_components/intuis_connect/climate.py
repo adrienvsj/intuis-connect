@@ -16,22 +16,48 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.typing import StateType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.helpers.event import async_call_later
 
-from .intuis_api.api import IntuisAPI
+from .entity.intuis_entity import IntuisDataUpdateCoordinator, IntuisEntity
 from .entity.intuis_room import IntuisRoom, is_pilot_wire
+from .intuis_api.api import IntuisAPI
 from .utils.const import (
-    PRESET_AWAY, PRESET_BOOST, PRESET_SCHEDULE, PRESET_FROST_PROTECT, API_MODE_OFF, API_MODE_AUTO, API_MODE_MANUAL,
-    API_MODE_AWAY, API_MODE_BOOST, API_MODE_HG, API_MODE_HOME, DEFAULT_AWAY_TEMP, DEFAULT_AWAY_DURATION, DEFAULT_BOOST_TEMP,
-    DEFAULT_BOOST_DURATION, DEFAULT_FROST_PROTECT_TEMP, DEFAULT_FROST_PROTECT_DURATION, DEFAULT_MANUAL_DURATION, DOMAIN,
-    CONF_MANUAL_DURATION, CONF_AWAY_DURATION, CONF_BOOST_DURATION, CONF_FROST_PROTECT_DURATION,
-    CONF_AWAY_TEMP, CONF_BOOST_TEMP, CONF_FROST_PROTECT_TEMP,
-    PRESET_COMFORT, PRESET_ECO, PRESET_PILOT_WIRE_FROST, PILOT_WIRE_PRESETS,
-    API_FP_COMFORT, API_FP_ECO, API_FP_FROST,
+    API_FP_COMFORT,
+    API_FP_ECO,
+    API_FP_FROST,
+    API_MODE_AUTO,
+    API_MODE_AWAY,
+    API_MODE_BOOST,
+    API_MODE_HG,
+    API_MODE_HOME,
+    API_MODE_MANUAL,
+    API_MODE_OFF,
+    CONF_AWAY_DURATION,
+    CONF_AWAY_TEMP,
+    CONF_BOOST_DURATION,
+    CONF_BOOST_TEMP,
+    CONF_FROST_PROTECT_DURATION,
+    CONF_FROST_PROTECT_TEMP,
+    CONF_MANUAL_DURATION,
+    DEFAULT_AWAY_DURATION,
+    DEFAULT_AWAY_TEMP,
+    DEFAULT_BOOST_DURATION,
+    DEFAULT_BOOST_TEMP,
+    DEFAULT_FROST_PROTECT_DURATION,
+    DEFAULT_FROST_PROTECT_TEMP,
+    DEFAULT_MANUAL_DURATION,
+    DOMAIN,
+    PILOT_WIRE_PRESETS,
+    PRESET_AWAY,
+    PRESET_BOOST,
+    PRESET_COMFORT,
+    PRESET_ECO,
+    PRESET_FROST_PROTECT,
+    PRESET_PILOT_WIRE_FROST,
+    PRESET_SCHEDULE,
 )
-from .entity.intuis_entity import IntuisEntity, IntuisDataUpdateCoordinator
 from .utils.helper import get_basic_utils
 
 _LOGGER = logging.getLogger(__name__)

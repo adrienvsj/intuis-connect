@@ -12,9 +12,9 @@ These tests verify:
 """
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from typing import Any
+
+import pytest
 
 # Sample home data for tests
 SAMPLE_HOMES_SINGLE = [
@@ -35,7 +35,10 @@ class TestConfigFlowSingleHome:
     async def test_single_home_skips_selection(self):
         """Single-home accounts should auto-select and skip home selection step."""
         from custom_components.intuis_connect.config_flow import ConfigFlow
-        from custom_components.intuis_connect.utils.const import CONF_USERNAME, CONF_PASSWORD
+        from custom_components.intuis_connect.utils.const import (
+            CONF_PASSWORD,
+            CONF_USERNAME,
+        )
 
         flow = ConfigFlow()
         flow.hass = MagicMock()
@@ -79,9 +82,9 @@ class TestConfigFlowSingleHome:
     async def test_backward_compatibility_existing_single_home(self):
         """Existing single-home entries should continue to work without home_name."""
         from custom_components.intuis_connect.utils.const import (
-            CONF_USERNAME,
-            CONF_REFRESH_TOKEN,
             CONF_HOME_ID,
+            CONF_REFRESH_TOKEN,
+            CONF_USERNAME,
         )
 
         # Simulate V2 config entry data (no home_name)
@@ -103,7 +106,10 @@ class TestConfigFlowMultiHome:
     async def test_multi_home_shows_selection(self):
         """Multi-home accounts should show home selection dropdown."""
         from custom_components.intuis_connect.config_flow import ConfigFlow
-        from custom_components.intuis_connect.utils.const import CONF_USERNAME, CONF_PASSWORD
+        from custom_components.intuis_connect.utils.const import (
+            CONF_PASSWORD,
+            CONF_USERNAME,
+        )
 
         flow = ConfigFlow()
         flow.hass = MagicMock()
@@ -171,7 +177,10 @@ class TestConfigFlowMultiHome:
     async def test_filters_configured_homes(self):
         """Already-configured homes should be filtered from selection."""
         from custom_components.intuis_connect.config_flow import ConfigFlow
-        from custom_components.intuis_connect.utils.const import CONF_HOME_ID, CONF_USERNAME
+        from custom_components.intuis_connect.utils.const import (
+            CONF_HOME_ID,
+            CONF_USERNAME,
+        )
 
         flow = ConfigFlow()
         flow.hass = MagicMock()
@@ -211,7 +220,10 @@ class TestConfigFlowMultiHome:
     async def test_aborts_when_all_homes_configured(self):
         """Should abort when all homes are already configured."""
         from custom_components.intuis_connect.config_flow import ConfigFlow
-        from custom_components.intuis_connect.utils.const import CONF_HOME_ID, CONF_USERNAME
+        from custom_components.intuis_connect.utils.const import (
+            CONF_HOME_ID,
+            CONF_USERNAME,
+        )
 
         flow = ConfigFlow()
         flow.hass = MagicMock()
@@ -315,10 +327,10 @@ class TestMigration:
         """Migration from V2 to V3 should add home_name."""
         from custom_components.intuis_connect import async_migrate_entry
         from custom_components.intuis_connect.utils.const import (
-            CONF_USERNAME,
-            CONF_REFRESH_TOKEN,
             CONF_HOME_ID,
             CONF_HOME_NAME,
+            CONF_REFRESH_TOKEN,
+            CONF_USERNAME,
         )
 
         # Create mock V2 entry
@@ -373,10 +385,10 @@ class TestMigration:
         from custom_components.intuis_connect import async_migrate_entry
         from custom_components.intuis_connect.intuis_api.api import InvalidAuth
         from custom_components.intuis_connect.utils.const import (
-            CONF_USERNAME,
-            CONF_REFRESH_TOKEN,
             CONF_HOME_ID,
             CONF_HOME_NAME,
+            CONF_REFRESH_TOKEN,
+            CONF_USERNAME,
         )
 
         mock_entry = MagicMock()
@@ -425,10 +437,10 @@ class TestMigration:
         """V3 entries should not be migrated."""
         from custom_components.intuis_connect import async_migrate_entry
         from custom_components.intuis_connect.utils.const import (
-            CONF_USERNAME,
-            CONF_REFRESH_TOKEN,
             CONF_HOME_ID,
             CONF_HOME_NAME,
+            CONF_REFRESH_TOKEN,
+            CONF_USERNAME,
         )
 
         mock_entry = MagicMock()
@@ -502,8 +514,9 @@ class TestAPIMultiHome:
 
     def test_async_get_homes_data_accepts_target_home_id(self):
         """async_get_homes_data should accept optional target_home_id parameter."""
-        from custom_components.intuis_connect.intuis_api.api import IntuisAPI
         import inspect
+
+        from custom_components.intuis_connect.intuis_api.api import IntuisAPI
 
         # Check that the method accepts target_home_id parameter
         sig = inspect.signature(IntuisAPI.async_get_homes_data)
@@ -518,8 +531,8 @@ class TestHelperMultiHome:
     @pytest.mark.asyncio
     async def test_async_validate_api_returns_homes_list(self):
         """async_validate_api should return (list[dict], api) tuple."""
-        from custom_components.intuis_connect.utils.helper import async_validate_api
         from custom_components.intuis_connect.intuis_api.api import IntuisAPI
+        from custom_components.intuis_connect.utils.helper import async_validate_api
 
         mock_session = MagicMock()
         mock_api = MagicMock(spec=IntuisAPI)

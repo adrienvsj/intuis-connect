@@ -5,17 +5,26 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass, SensorDeviceClass
-from homeassistant.const import EntityCategory, UnitOfTime, UnitOfEnergy, SIGNAL_STRENGTH_DECIBELS_MILLIWATT
+import homeassistant.util.dt as dt_util
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
+from homeassistant.const import (
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+    EntityCategory,
+    UnitOfEnergy,
+    UnitOfTime,
+)
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-import homeassistant.util.dt as dt_util
 
+from ..entity.intuis_entity import IntuisDataUpdateCoordinator
+from ..utils.const import CONF_ENERGY_RESET_HOUR, DEFAULT_ENERGY_RESET_HOUR, DOMAIN
 from .intuis_home import IntuisHome
 from .intuis_module import NMGIntuisModule
 from .intuis_schedule import IntuisThermSchedule, IntuisThermZone, IntuisTimetable
-from ..entity.intuis_entity import IntuisDataUpdateCoordinator
-from ..utils.const import DOMAIN, CONF_ENERGY_RESET_HOUR, DEFAULT_ENERGY_RESET_HOUR
 
 _LOGGER = logging.getLogger(__name__)
 

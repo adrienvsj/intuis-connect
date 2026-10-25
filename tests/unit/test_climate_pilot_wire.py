@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import pytest
-
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 
 from custom_components.intuis_connect.climate import IntuisPilotWireClimate

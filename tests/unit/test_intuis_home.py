@@ -1,11 +1,11 @@
 """Tests for IntuisHome entity."""
 from __future__ import annotations
 
-import pytest
 from typing import Any
 
-from custom_components.intuis_connect.entity.intuis_home import IntuisHome, Capability
+import pytest
 
+from custom_components.intuis_connect.entity.intuis_home import Capability, IntuisHome
 
 # ---------------------------------------------------------------------------
 # Test: Capability

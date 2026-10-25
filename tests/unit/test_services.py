@@ -1,11 +1,9 @@
 """Tests for Intuis Connect service handlers."""
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from custom_components.intuis_connect.utils.const import DOMAIN
-
 
 # ---------------------------------------------------------------------------
 # Test: Timetable Helper Functions (already tested in test_schedule_helpers.py)
@@ -17,7 +15,7 @@ class TestSwitchScheduleService:
 
     def test_switch_schedule_extracts_name(self):
         """switch_schedule extracts schedule_name from call.data."""
-        from custom_components.intuis_connect import ATTR_SCHEDULE_NAME
+        from custom_components.intuis_connect.services import ATTR_SCHEDULE_NAME
 
         call = MagicMock()
         call.data = {"schedule_name": "Comfort"}
@@ -188,10 +186,10 @@ class TestServiceRegistration:
 
     def test_service_constants_defined(self):
         """Service constants are properly defined."""
-        from custom_components.intuis_connect import (
-            SERVICE_SWITCH_SCHEDULE,
+        from custom_components.intuis_connect.services import (
             SERVICE_REFRESH_SCHEDULES,
             SERVICE_SET_SCHEDULE_SLOT,
+            SERVICE_SWITCH_SCHEDULE,
         )
 
         assert SERVICE_SWITCH_SCHEDULE == "switch_schedule"
@@ -200,13 +198,13 @@ class TestServiceRegistration:
 
     def test_service_attributes_defined(self):
         """Service attributes are defined as constants."""
-        from custom_components.intuis_connect import (
-            ATTR_SCHEDULE_NAME,
+        from custom_components.intuis_connect.services import (
             ATTR_DAY,
-            ATTR_START_DAY,
             ATTR_END_DAY,
-            ATTR_START_TIME,
             ATTR_END_TIME,
+            ATTR_SCHEDULE_NAME,
+            ATTR_START_DAY,
+            ATTR_START_TIME,
             ATTR_ZONE_NAME,
         )
 

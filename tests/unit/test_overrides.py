@@ -1,17 +1,17 @@
 """Tests for the override/sticky system in IntuisData."""
 from __future__ import annotations
 
-import pytest
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 # Import the module under test
 from custom_components.intuis_connect.utils.const import (
-    API_MODE_MANUAL,
     API_MODE_AWAY,
     API_MODE_BOOST,
+    API_MODE_MANUAL,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test: Indefinite Mode Re-application

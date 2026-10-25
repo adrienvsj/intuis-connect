@@ -38,7 +38,7 @@ class FakeResponse:
         if self.status >= 400:
             raise aiohttp.ClientResponseError(None, (), status=self.status)
 
-    async def __aenter__(self) -> "FakeResponse":
+    async def __aenter__(self) -> FakeResponse:
         return self
 
     async def __aexit__(self, *args: Any) -> None:
@@ -46,7 +46,7 @@ class FakeResponse:
 
 
 class _PostContext:
-    def __init__(self, session: "FakeSession", url: str, kwargs: dict) -> None:
+    def __init__(self, session: FakeSession, url: str, kwargs: dict) -> None:
         self._session, self._url, self._kwargs = session, url, kwargs
 
     async def __aenter__(self) -> FakeResponse:

@@ -1,27 +1,25 @@
 """Tests for the IntuisConnectClimate entity."""
 from __future__ import annotations
 
-import pytest
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
+import pytest
 from homeassistant.components.climate import HVACAction, HVACMode
 
 from custom_components.intuis_connect.utils.const import (
-    API_MODE_OFF,
     API_MODE_AUTO,
-    API_MODE_MANUAL,
     API_MODE_AWAY,
     API_MODE_BOOST,
-    API_MODE_HOME,
     API_MODE_HG,
+    API_MODE_HOME,
+    API_MODE_MANUAL,
+    API_MODE_OFF,
     PRESET_AWAY,
     PRESET_BOOST,
-    PRESET_SCHEDULE,
     PRESET_FROST_PROTECT,
-    DOMAIN,
+    PRESET_SCHEDULE,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test: Climate Properties
@@ -761,7 +759,10 @@ class TestHeatingDetection:
 
     def test_heating_false_when_mode_off(self):
         """Heating should NOT be detected when mode is OFF, even if temp < target."""
-        from custom_components.intuis_connect.entity.intuis_room import IntuisRoom, IntuisRoomDefinition
+        from custom_components.intuis_connect.entity.intuis_room import (
+            IntuisRoom,
+            IntuisRoomDefinition,
+        )
 
         definition = IntuisRoomDefinition(
             id="room_1", name="Test Room", type="custom",
@@ -784,7 +785,10 @@ class TestHeatingDetection:
 
     def test_heating_true_when_mode_home_and_temp_below_target(self):
         """Heating should be detected when mode is home and temp is below target (fallback)."""
-        from custom_components.intuis_connect.entity.intuis_room import IntuisRoom, IntuisRoomDefinition
+        from custom_components.intuis_connect.entity.intuis_room import (
+            IntuisRoom,
+            IntuisRoomDefinition,
+        )
 
         definition = IntuisRoomDefinition(
             id="room_1", name="Test Room", type="custom",
@@ -807,7 +811,10 @@ class TestHeatingDetection:
 
     def test_heating_false_when_temp_within_threshold(self):
         """Heating should NOT be detected when temp is within threshold of target."""
-        from custom_components.intuis_connect.entity.intuis_room import IntuisRoom, IntuisRoomDefinition
+        from custom_components.intuis_connect.entity.intuis_room import (
+            IntuisRoom,
+            IntuisRoomDefinition,
+        )
 
         definition = IntuisRoomDefinition(
             id="room_1", name="Test Room", type="custom",
@@ -830,8 +837,13 @@ class TestHeatingDetection:
 
     def test_heating_from_nmh_module_radiator_state(self):
         """Heating detected from NMH module radiator_state even when temp is near target."""
-        from custom_components.intuis_connect.entity.intuis_room import IntuisRoom, IntuisRoomDefinition
-        from custom_components.intuis_connect.entity.intuis_module import NMHIntuisModule
+        from custom_components.intuis_connect.entity.intuis_module import (
+            NMHIntuisModule,
+        )
+        from custom_components.intuis_connect.entity.intuis_room import (
+            IntuisRoom,
+            IntuisRoomDefinition,
+        )
 
         definition = IntuisRoomDefinition(
             id="room_1", name="Test Room", type="custom",

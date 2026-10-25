@@ -53,7 +53,8 @@ HOMESTATUS = {
             "therm_setpoint_mode": "home",
             "therm_setpoint_temperature": 20,
             "therm_measured_temperature": 19.5,
-            "muller_type": "NMH",
+            # Intuitiv radiators can report an FP type and still take temperatures
+            "muller_type": "FP4",
         },
         {
             # Pilot-wire radiator: no measured temperature
@@ -120,6 +121,10 @@ async def test_setup_and_unload(hass, mock_api, no_http):
     climates = hass.states.async_entity_ids("climate")
     assert len(climates) == 2
     assert all(hass.states.get(c).state != "unavailable" for c in climates)
+    # Temperature radiator keeps its dial; the pilot-wire one gets order presets
+    by_target = {c: hass.states.get(c).attributes.get("temperature") for c in climates}
+    assert sorted(v for v in by_target.values() if v is not None) == [20]
+    assert sum(v is None for v in by_target.values()) == 1
     assert hass.services.has_service(DOMAIN, "set_schedule_slot")
 
     assert await hass.config_entries.async_unload(entry.entry_id)

@@ -13,10 +13,24 @@ from ..utils.const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-def is_pilot_wire(muller_type: str | None) -> bool:
-    """Return True for pilot-wire radiators (FP4…), which take orders instead of temperatures."""
+def is_pilot_wire(
+    muller_type: str | None,
+    temperature: float | None = None,
+    target_temperature: float | None = None,
+) -> bool:
+    """Return True for pilot-wire radiators (FP4…), which take orders instead of temperatures.
+
+    Radiators with an Intuitiv module can also report an "FP" muller_type while
+    measuring the room and taking temperature setpoints, so a room is only a
+    pilot-wire room when it reports neither a temperature nor a setpoint.
+    """
     # ponytail: prefix heuristic on muller_type; switch to an API capability field if Intuis ever exposes one
-    return bool(muller_type) and muller_type.startswith("FP")
+    return (
+        bool(muller_type)
+        and muller_type.startswith("FP")
+        and temperature is None
+        and target_temperature is None
+    )
 
 
 class IntuisRoomDefinition:

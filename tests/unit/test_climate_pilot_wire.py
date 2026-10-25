@@ -45,6 +45,13 @@ def test_is_pilot_wire(muller_type, expected):
     assert is_pilot_wire(muller_type) is expected
 
 
+def test_fp_radiator_reporting_temperatures_is_not_pilot_wire():
+    """Intuitiv radiators can report an FP type while measuring and taking setpoints."""
+    assert is_pilot_wire("FP4", 18.9, 19.0) is False
+    assert is_pilot_wire("FP4", None, 19.0) is False
+    assert is_pilot_wire("FP4", None, None) is True
+
+
 class TestPilotWireState:
 
     def test_no_temperature_dial(self, pilot_entity):

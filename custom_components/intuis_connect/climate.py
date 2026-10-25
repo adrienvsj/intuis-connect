@@ -501,6 +501,10 @@ async def async_setup_entry(
     entities = []
     for room_id in rooms:
         room = rooms.get(room_id)
-        climate_cls = IntuisPilotWireClimate if is_pilot_wire(room.muller_type) else IntuisConnectClimate
+        climate_cls = (
+            IntuisPilotWireClimate
+            if is_pilot_wire(room.muller_type, room.temperature, room.target_temperature)
+            else IntuisConnectClimate
+        )
         entities.append(climate_cls(coordinator, home_id, room, api, entry.entry_id))
     async_add_entities(entities, update_before_add=True)

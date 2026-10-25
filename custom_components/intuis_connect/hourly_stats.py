@@ -36,7 +36,11 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from homeassistant.components.recorder import get_instance
-from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.models import (
+    StatisticData,
+    StatisticMeanType,
+    StatisticMetaData,
+)
 from homeassistant.components.recorder.statistics import (
     async_import_statistics,
     get_last_statistics,
@@ -536,27 +540,15 @@ class HourlyStatsUpdater:
         room = self._intuis_home.rooms.get(room_id)
         room_name = room.name if room else ("Room " + room_id)
 
-        # mean_type + unit_class required from HA 2026.11 - try/except for backward compat
-        try:
-            from homeassistant.components.recorder.models import StatisticMeanType
-            metadata = StatisticMetaData(
-                mean_type=StatisticMeanType.NONE,
-                has_sum=True,
-                name=(room_name + " Energy"),
-                source="recorder",
-                statistic_id=statistic_id,
-                unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-                unit_class="energy",
-            )
-        except (ImportError, TypeError):
-            metadata = StatisticMetaData(
-                has_mean=False,
-                has_sum=True,
-                name=(room_name + " Energy"),
-                source="recorder",
-                statistic_id=statistic_id,
-                unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-            )
+        metadata = StatisticMetaData(
+            mean_type=StatisticMeanType.NONE,
+            has_sum=True,
+            name=(room_name + " Energy"),
+            source="recorder",
+            statistic_id=statistic_id,
+            unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+            unit_class="energy",
+        )
 
         try:
             async_import_statistics(self._hass, metadata, stats)
@@ -783,7 +775,3 @@ class HourlyStatsUpdater:
                 break
             except TimeoutError:
                 pass
-
-    async def async_rebase_daily(self) -> None:
-        """No-op: midnight_bases is maintained incrementally by _process_room."""
-        _LOGGER.debug("async_rebase_daily: no-op (midnight_bases maintained incrementally)")

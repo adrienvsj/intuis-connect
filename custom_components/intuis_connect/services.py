@@ -63,7 +63,6 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Service names
-SERVICE_CLEAR_OVERRIDE = "clear_override"
 SERVICE_SWITCH_SCHEDULE = "switch_schedule"
 SERVICE_REFRESH_SCHEDULES = "refresh_schedules"
 SERVICE_SET_SCHEDULE_SLOT = "set_schedule_slot"
@@ -73,7 +72,6 @@ SERVICE_SYNC_SCHEDULE = "sync_schedule"
 SERVICE_RECALCULATE_COST_HISTORY = "recalculate_cost_history"
 
 # Service attributes
-ATTR_ROOM_ID = "room_id"
 ATTR_SCHEDULE_NAME = "schedule_name"
 ATTR_SCHEDULE_ID = "schedule_id"
 ATTR_HOME_ID = "home_id"
@@ -93,7 +91,6 @@ ATTR_AWAY_TEMP = "away_temp"
 ATTR_HG_TEMP = "hg_temp"
 
 # Base service schemas (dynamic schemas are built in async_register_services)
-CLEAR_OVERRIDE_SCHEMA = vol.Schema({vol.Required(ATTR_ROOM_ID): str})
 REFRESH_SCHEDULES_SCHEMA = vol.Schema({
     vol.Optional(ATTR_HOME_ID): str,  # Target specific home (multi-home support)
 })

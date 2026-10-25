@@ -27,7 +27,11 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from homeassistant.components.recorder import get_instance
-from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.recorder.models import (
+    StatisticData,
+    StatisticMeanType,
+    StatisticMetaData,
+)
 from homeassistant.components.recorder.statistics import async_import_statistics
 from homeassistant.helpers.storage import Store
 
@@ -537,27 +541,15 @@ class CostStatsUpdater:
         room_name = room.name if room else ("Room " + room_id)
         currency = self._hass.config.currency or "EUR"
 
-        try:
-            from homeassistant.components.recorder.models import StatisticMeanType
-            metadata = StatisticMetaData(
-                mean_type=StatisticMeanType.NONE,
-                has_sum=True,
-                name=(room_name + " Cost"),
-                source="recorder",
-                statistic_id=statistic_id,
-                unit_of_measurement=currency,
-                unit_class=None,
-            )
-        except (ImportError, TypeError):
-            metadata = StatisticMetaData(
-                has_mean=False,
-                has_sum=True,
-                name=(room_name + " Cost"),
-                source="recorder",
-                statistic_id=statistic_id,
-                unit_of_measurement=currency,
-                unit_class=None,
-            )
+        metadata = StatisticMetaData(
+            mean_type=StatisticMeanType.NONE,
+            has_sum=True,
+            name=(room_name + " Cost"),
+            source="recorder",
+            statistic_id=statistic_id,
+            unit_of_measurement=currency,
+            unit_class=None,
+        )
 
         try:
             async_import_statistics(self._hass, metadata, stats)
@@ -748,27 +740,15 @@ class CostStatsUpdater:
             room_name = room.name if room else room_id
             currency = self._hass.config.currency or "EUR"
 
-            try:
-                from homeassistant.components.recorder.models import StatisticMeanType
-                metadata = StatisticMetaData(
-                    mean_type=StatisticMeanType.NONE,
-                    has_sum=True,
-                    name=(room_name + " Cost"),
-                    source="recorder",
-                    statistic_id=cost_sid,
-                    unit_of_measurement=currency,
-                    unit_class=None,
-                )
-            except (ImportError, TypeError):
-                metadata = StatisticMetaData(
-                    has_mean=False,
-                    has_sum=True,
-                    name=(room_name + " Cost"),
-                    source="recorder",
-                    statistic_id=cost_sid,
-                    unit_of_measurement=currency,
-                    unit_class=None,
-                )
+            metadata = StatisticMetaData(
+                mean_type=StatisticMeanType.NONE,
+                has_sum=True,
+                name=(room_name + " Cost"),
+                source="recorder",
+                statistic_id=cost_sid,
+                unit_of_measurement=currency,
+                unit_class=None,
+            )
 
             try:
                 async_import_statistics(self._hass, metadata, cost_stats)

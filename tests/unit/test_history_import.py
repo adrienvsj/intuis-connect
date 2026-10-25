@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.intuis_connect.history_import import (
-    _clear_statistics_in_range,
     _get_baseline_sum,
     _get_existing_statistics,
 )
@@ -272,67 +271,3 @@ class TestBaselineIntegration:
             )
 
         assert baseline == 0.0
-
-
-class TestClearStatisticsInRange:
-    """Tests for _clear_statistics_in_range function."""
-
-    @pytest.mark.asyncio
-    async def test_returns_zero_when_no_metadata(self):
-        """Should return 0 when entity has no statistics metadata."""
-        mock_hass = MagicMock()
-        mock_instance = MagicMock()
-        mock_session = MagicMock()
-        mock_session.execute.return_value.scalar.return_value = None
-
-        # Mock the context manager
-        mock_session.__enter__ = MagicMock(return_value=mock_session)
-        mock_session.__exit__ = MagicMock(return_value=False)
-        mock_instance.get_session.return_value = mock_session
-
-        with patch(
-            "custom_components.intuis_connect.history_import.get_instance",
-            return_value=mock_instance,
-        ), patch(
-            "custom_components.intuis_connect.history_import.session_scope",
-        ) as mock_scope:
-            # Configure the context manager mock
-            mock_scope.return_value.__enter__ = MagicMock(return_value=mock_session)
-            mock_scope.return_value.__exit__ = MagicMock(return_value=False)
-
-            # Mock async_add_executor_job to run the function synchronously
-            async def run_sync(func):
-                return func()
-
-            mock_hass.async_add_executor_job = run_sync
-
-            result = await _clear_statistics_in_range(
-                mock_hass,
-                "sensor.energy",
-                datetime(2025, 11, 19, tzinfo=UTC),
-                datetime(2026, 1, 3, tzinfo=UTC),
-            )
-
-        # When no metadata found, should return 0
-        assert result == 0
-
-    @pytest.mark.asyncio
-    async def test_handles_exception_gracefully(self):
-        """Should return 0 and log warning on exception."""
-        mock_hass = MagicMock()
-        mock_hass.async_add_executor_job = AsyncMock(
-            side_effect=Exception("DB connection failed")
-        )
-
-        with patch(
-            "custom_components.intuis_connect.history_import.get_instance",
-            return_value=MagicMock(),
-        ):
-            result = await _clear_statistics_in_range(
-                mock_hass,
-                "sensor.energy",
-                datetime(2025, 11, 19, tzinfo=UTC),
-                datetime(2026, 1, 3, tzinfo=UTC),
-            )
-
-        assert result == 0

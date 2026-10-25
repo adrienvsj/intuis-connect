@@ -33,7 +33,6 @@ HOMESDATA_PATH = "/api/homesdata"
 HOMESTATUS_PATH = "/syncapi/v1/homestatus"
 CONFIG_PATH = "/syncapi/v1/getconfigs"
 SETSTATE_PATH = "/syncapi/v1/setstate"
-HOMEMEASURE_PATH = "/api/gethomemeasure"
 ROOMMEASURE_PATH = "/api/getroommeasure"
 
 # Energy measure types - request all tariffs to capture all consumption
@@ -142,10 +141,8 @@ DEFAULT_HOURLY_STATS_INTERVAL = 120  # minutes (2 hours)
 API_DATA_DELAY_HOURS = 1
 
 # Lookback period for hourly stats updater (in hours)
-HOURLY_STATS_LOOKBACK_HOURS = 12
 
 # Maximum hours per API request to avoid 500 errors
-MAX_HOURS_PER_REQUEST = 12
 
 # Maximum days per hourly API request for historical import
 MAX_DAYS_PER_HOURLY_REQUEST = 42  # API returns max 1024 hourly values (~42 days)

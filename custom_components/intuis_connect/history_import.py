@@ -12,12 +12,11 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from homeassistant.components.recorder import get_instance
-from homeassistant.components.recorder.db_schema import (
-    Statistics,
-    StatisticsMeta,
-    StatisticsShortTerm,
+from homeassistant.components.recorder.models import (
+    StatisticData,
+    StatisticMeanType,
+    StatisticMetaData,
 )
-from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
     async_import_statistics,
     statistics_during_period,
@@ -26,9 +25,7 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.recorder import session_scope
 from homeassistant.helpers.storage import Store
-from sqlalchemy import and_, delete, select
 
 from .hourly_stats import IMPORT_SETTLE_MINUTES, HourlyStatsUpdater
 from .intuis_api.api import APIError, CannotConnect, RateLimitError
@@ -141,185 +138,6 @@ async def _get_baseline_sum(
     )
 
     return baseline_sum
-
-
-async def _clear_statistics_in_range(
-    hass: HomeAssistant,
-    entity_id: str,
-    start_time: datetime,
-    end_time: datetime,
-) -> int:
-    """Clear ALL statistics for an entity within a time range.
-
-    This deletes statistics entries at ANY hour within the range, which is
-    necessary because:
-    - Historical import creates entries at 00:00 UTC
-    - Live sensor creates entries at various hours
-    - Both coexist if timestamps don't match exactly
-
-    By clearing before import, we ensure no conflicting entries remain.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The statistic_id (entity_id) to clear.
-        start_time: Start of the time range to clear (inclusive).
-        end_time: End of the time range to clear (exclusive).
-
-    Returns:
-        Number of statistics entries deleted.
-    """
-    instance = get_instance(hass)
-
-    def _do_clear() -> int:
-        with session_scope(session=instance.get_session()) as session:
-            # Get metadata_id for this entity
-            result = session.execute(
-                select(StatisticsMeta.id).where(
-                    StatisticsMeta.statistic_id == entity_id
-                )
-            ).scalar()
-
-            if not result:
-                _LOGGER.debug(
-                    "No statistics metadata found for %s, nothing to clear",
-                    entity_id,
-                )
-                return 0
-
-            metadata_id = result
-            start_ts = start_time.timestamp()
-            end_ts = end_time.timestamp()
-
-            # Delete from Statistics (long-term) table
-            deleted = session.execute(
-                delete(Statistics).where(
-                    and_(
-                        Statistics.metadata_id == metadata_id,
-                        Statistics.start_ts >= start_ts,
-                        Statistics.start_ts < end_ts,
-                    )
-                )
-            ).rowcount
-
-            # Also clear from StatisticsShortTerm table
-            session.execute(
-                delete(StatisticsShortTerm).where(
-                    and_(
-                        StatisticsShortTerm.metadata_id == metadata_id,
-                        StatisticsShortTerm.start_ts >= start_ts,
-                        StatisticsShortTerm.start_ts < end_ts,
-                    )
-                )
-            )
-
-            return deleted
-
-    # Retry with backoff in case of database lock
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            deleted = await instance.async_add_executor_job(_do_clear)
-            if deleted > 0:
-                _LOGGER.debug(
-                    "Cleared %d statistics entries for %s in range",
-                    deleted,
-                    entity_id,
-                )
-            return deleted
-        except Exception as err:
-            if "database is locked" in str(err) and attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 2  # 2s, 4s
-                _LOGGER.debug(
-                    "Database locked, retrying in %ds (attempt %d/%d)",
-                    wait_time, attempt + 1, max_retries
-                )
-                await asyncio.sleep(wait_time)
-            else:
-                _LOGGER.warning(
-                    "Failed to clear statistics for %s: %s",
-                    entity_id,
-                    err,
-                )
-                return 0
-    return 0
-
-
-async def _clear_all_statistics(
-    hass: HomeAssistant,
-    entity_id: str,
-) -> int:
-    """Clear ALL statistics for an entity (all time).
-
-    Use this when changing granularity (daily -> hourly) to avoid
-    sum discontinuity issues.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The statistic_id (entity_id) to clear.
-
-    Returns:
-        Number of statistics entries deleted.
-    """
-    instance = get_instance(hass)
-
-    def _do_clear() -> int:
-        with session_scope(session=instance.get_session()) as session:
-            # Get metadata_id for this entity
-            result = session.execute(
-                select(StatisticsMeta.id).where(
-                    StatisticsMeta.statistic_id == entity_id
-                )
-            ).scalar()
-
-            if not result:
-                _LOGGER.debug(
-                    "No statistics metadata found for %s, nothing to clear",
-                    entity_id,
-                )
-                return 0
-
-            metadata_id = result
-
-            # Delete ALL entries from Statistics (long-term) table
-            deleted = session.execute(
-                delete(Statistics).where(
-                    Statistics.metadata_id == metadata_id,
-                )
-            ).rowcount
-
-            # Also clear from StatisticsShortTerm table
-            session.execute(
-                delete(StatisticsShortTerm).where(
-                    StatisticsShortTerm.metadata_id == metadata_id,
-                )
-            )
-
-            _LOGGER.info(
-                "Cleared all %d statistics entries for %s",
-                deleted,
-                entity_id,
-            )
-
-            return deleted
-
-    # Retry with backoff in case of database lock
-    max_retries = 5
-    for attempt in range(max_retries):
-        try:
-            deleted = await instance.async_add_executor_job(_do_clear)
-            return deleted
-        except Exception as err:
-            if "database is locked" in str(err) and attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 3  # 3s, 6s, 9s, 12s
-                _LOGGER.debug(
-                    "Database locked, retrying in %ds (attempt %d/%d)",
-                    wait_time, attempt + 1, max_retries
-                )
-                await asyncio.sleep(wait_time)
-            else:
-                _LOGGER.error("Failed to clear statistics for %s: %s", entity_id, err)
-                return 0
-    return 0
 
 
 class HistoryImportManager:
@@ -774,31 +592,15 @@ async def async_import_energy_history(
             # Import collected statistics for this room
             if statistics:
                 try:
-                    # Use StatisticMeanType if available (HA 2025.11+)
-                    try:
-                        from homeassistant.components.recorder.models import (
-                            StatisticMeanType,
-                        )
-                        metadata = StatisticMetaData(
-                            source="recorder",
-                            statistic_id=entity_id,
-                            name=f"{room_name} Energy",
-                            unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-                            has_sum=True,
-                            mean_type=StatisticMeanType.NONE,
-                            unit_class=SensorDeviceClass.ENERGY,
-                        )
-                    except ImportError:
-                        # Fallback for older HA versions
-                        metadata = StatisticMetaData(
-                            source="recorder",
-                            statistic_id=entity_id,
-                            name=f"{room_name} Energy",
-                            unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
-                            has_mean=False,
-                            has_sum=True,
-                            unit_class=SensorDeviceClass.ENERGY,
-                        )
+                    metadata = StatisticMetaData(
+                        source="recorder",
+                        statistic_id=entity_id,
+                        name=f"{room_name} Energy",
+                        unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+                        has_sum=True,
+                        mean_type=StatisticMeanType.NONE,
+                        unit_class=SensorDeviceClass.ENERGY,
+                    )
 
                     async_import_statistics(hass, metadata, statistics)
 

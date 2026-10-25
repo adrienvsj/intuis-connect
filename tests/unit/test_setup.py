@@ -266,3 +266,23 @@ async def test_existing_installation_keeps_ids_and_cleans_devices(hass, mock_api
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_diagnostics_redact_credentials(hass, mock_api, no_http):
+    from custom_components.intuis_connect.diagnostics import (
+        async_get_config_entry_diagnostics,
+    )
+
+    entry = _entry(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    text = str(diag)
+    assert "user@example.com" not in text
+    assert diag["entry"]["data"]["refresh_token"] == "**REDACTED**"
+    assert set(diag["rooms"]) == {"room_1", "room_2"}
+    assert diag["rooms"]["room_1"]["target_temperature"] == 20
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

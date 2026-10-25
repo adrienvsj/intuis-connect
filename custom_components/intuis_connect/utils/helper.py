@@ -85,26 +85,12 @@ def get_coordinator(hass, entry) -> IntuisDataUpdateCoordinator:
     return coordinator
 
 
-def get_home(coordinator: IntuisDataUpdateCoordinator) -> str:
-    """Get the home ID from the coordinator data."""
-    return coordinator.data.get("id", "unknown_home")
-
-
 def get_rooms(coordinator: IntuisDataUpdateCoordinator) -> dict[str, IntuisRoom]:
     """Get the rooms data from the coordinator."""
     rooms = coordinator.data.get("rooms", {})
     if not rooms:
         _LOGGER.warning("No rooms found in coordinator data")
     return rooms
-
-
-def get_room(coordinator: IntuisDataUpdateCoordinator, room_id: str) -> IntuisRoom | None:
-    """Get the room data from the coordinator by room ID."""
-    room = get_rooms(coordinator).get(room_id)
-    if room:
-        return room
-    _LOGGER.warning("Room %s not found in coordinator data", room_id)
-    return None
 
 
 def get_api(hass: HomeAssistant, entry: ConfigEntry) -> IntuisAPI:

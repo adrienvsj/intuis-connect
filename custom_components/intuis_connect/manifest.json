@@ -5,15 +5,15 @@
     "recorder"
   ],
   "codeowners": [
-    "@antoine-pyre"
+    "@adrienvsj"
   ],
   "config_flow": true,
   "dependencies": [
     "http"
   ],
-  "documentation": "https://github.com/antoine-pyre/intuis-connect#readme",
+  "documentation": "https://github.com/adrienvsj/intuis-connect#readme",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/antoine-pyre/intuis-connect/issues",
+  "issue_tracker": "https://github.com/adrienvsj/intuis-connect/issues",
   "requirements": [],
-  "version": "2.0.1"
+  "version": "2.1.0"
 }

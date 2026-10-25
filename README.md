@@ -3,7 +3,26 @@
 > **Full control of your Muller / Campa / Intuis electric radiators** with Netatmo "Intuitiv" modules – climate control, energy tracking, schedule management, and more.
 
 [![HACS Badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/v/release/antoine-pyre/homeassistant-intuis-connect)](https://github.com/antoine-pyre/homeassistant-intuis-connect/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/adrienvsj/intuis-connect)](https://github.com/adrienvsj/intuis-connect/releases)
+
+---
+
+## About this fork
+
+This is a maintained fork of [antoine-pyre/intuis-connect](https://github.com/antoine-pyre/intuis-connect),
+whose last release is `2.0.0-beta` (March 2026). Version **2.1.0** brings together:
+
+- the upstream `2.0.0-beta` code and its heating-detection fix;
+- hourly energy statistics and energy cost tracking by
+  [TheFab21](https://github.com/TheFab21) (upstream PRs #22 and #24);
+- pilot-wire (FP4) radiator support by [apeyrat](https://github.com/apeyrat);
+- a robustness review: crash fixes (schedule slot service, setup of new
+  installs), safe hourly statistics (no duplicate or reset sums), retries
+  instead of permanent errors during cloud outages, and tests that run on a
+  real Home Assistant instance.
+
+Issues and pull requests are welcome on
+[this repository](https://github.com/adrienvsj/intuis-connect/issues).
 
 ---
 
@@ -26,18 +45,18 @@
 
 ## Installation
 
-> **Requires Home Assistant 2024.6+ and HACS 1.33+**
+> **Developed and tested with Home Assistant 2026.10.** Install it through HACS as a custom repository.
 
 ### One-Click Install (Recommended)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=antoine-pyre&repository=homeassistant-intuis-connect&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=adrienvsj&repository=intuis-connect&category=integration)
 
 ### Manual HACS Install
 
 1. Open **HACS → Integrations**
 2. Click **⋮** → **Custom repositories**
 3. Add:
-   - URL: `https://github.com/antoine-pyre/intuis-connect`
+   - URL: `https://github.com/adrienvsj/intuis-connect`
    - Category: **Integration**
 4. Search for "Intuis Connect" → **Download** → **Restart** Home Assistant
 
@@ -213,6 +232,18 @@ The integration periodically fetches past hourly consumption data from the Intui
 - Statistics are updated at a configurable interval (default: every 2 hours)
 - The Intuis API typically has a 2–4 hour delay before data is finalized
 - Data is stored as cumulative kWh sums, compatible with the HA Energy Dashboard
+- Only complete hours are written, from 15 minutes after the hour ends; each
+  run continues from the sum already stored by Home Assistant, so a restart,
+  a downtime of up to 7 days or renaming an energy sensor does not reset or
+  shift the totals
+
+> **Statistics warnings are expected.** The `sensor.<room>_energy` entities
+> have no `state_class` on purpose: the integration writes their statistics
+> itself, and a state class would make the recorder write competing ones.
+> Home Assistant therefore lists them under **Developer tools → Statistics**
+> (`state_class_removed`) and in the Energy settings
+> (`entity_unexpected_state_class`). Leave these warnings alone: the
+> proposed fix **deletes** the imported energy history.
 
 ### Energy Cost Tracking
 
@@ -234,7 +265,7 @@ Use the `import_energy_history` service or enable it at setup time to backfill t
 service: intuis_connect.import_energy_history
 data:
   days: 365
-  granularity: "1hour"
+  granularity: "hourly"
 ```
 
 ---
@@ -323,7 +354,7 @@ Accessible via **Settings → Devices & Services → Intuis Connect → Configur
 | Option | Default | Description |
 |--------|---------|-------------|
 | Energy Scale | 1 day | Granularity: 5min, 30min, 1hour, or 1day |
-| Hourly Statistics | Off | Enable periodic injection of hourly kWh into LTS |
+| Hourly Statistics | On | Enable periodic injection of hourly kWh into LTS |
 | Hourly Stats Interval | 2 hours | How often to fetch and inject hourly stats |
 | Import History | Off | Import historical energy data on setup |
 | History Days | 30 | Days of history to import (7, 30, 90, 365) |
@@ -497,7 +528,10 @@ When enabled, the integration automatically re-applies manual overrides before t
 - If you previously installed the HTML manually, remove `/config/www/planning_intuis/` and update the card URL
 
 ### Authentication errors
-- Re-authenticate by removing and re-adding the integration
+- When the Intuis cloud refuses the stored token, Home Assistant shows a
+  re-authentication prompt for the integration: enter your password there
+- Cloud outages and rate limits do not require any action: the setup and the
+  updates are retried automatically
 - Check if your password changed in the Intuis app
 
 ---
@@ -524,6 +558,10 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Credits
 
-Created by [antoine-pyre](https://github.com/antoine-pyre)
+- Created by [antoine-pyre](https://github.com/antoine-pyre)
+- 2.0.0 changes by [sremy91](https://github.com/sremy91)
+- Hourly energy statistics and energy cost by [TheFab21](https://github.com/TheFab21)
+- Pilot-wire (FP4) support by [apeyrat](https://github.com/apeyrat)
+- Fork maintained by [adrienvsj](https://github.com/adrienvsj)
 
 Based on reverse-engineering of the Intuis/Netatmo API.

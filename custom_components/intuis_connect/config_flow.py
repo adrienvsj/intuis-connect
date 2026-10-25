@@ -91,7 +91,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize per-flow state (class attributes would be shared between flows)."""
-        self._reauth_entry: config_entries.ConfigEntry | None = None
         self._username: str | None = None
         self._home_id: str | None = None
         self._home_name: str | None = None
@@ -426,12 +425,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=options_schema,
         )
 
-    async def async_step_reauth(self, data: dict[str, Any]) -> FlowResult:
+    async def async_step_reauth(self, entry_data: dict[str, Any]) -> FlowResult:
         """Handle re-authentication with Intuis Connect."""
-        self._username = data[CONF_USERNAME]
-        self._reauth_entry = self.hass.config_entries.async_get_entry(
-            self.context["entry_id"]
-        )
+        self._username = entry_data[CONF_USERNAME]
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -454,20 +450,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error while validating the account")
                 errors["base"] = "unknown"
             else:
-                assert self._reauth_entry
-                self.hass.config_entries.async_update_entry(
-                    self._reauth_entry,
-                    data={
-                        CONF_USERNAME: self._username,
-                        CONF_REFRESH_TOKEN: api.refresh_token,
-                        CONF_HOME_ID: self._reauth_entry.data[CONF_HOME_ID],
-                        CONF_HOME_NAME: self._reauth_entry.data.get(CONF_HOME_NAME),
-                    },
+                return self.async_update_reload_and_abort(
+                    self._get_reauth_entry(),
+                    data_updates={CONF_REFRESH_TOKEN: api.refresh_token},
                 )
-                await self.hass.config_entries.async_reload(
-                    self._reauth_entry.entry_id
-                )
-                return self.async_abort(reason="reauth_successful")
 
         schema = vol.Schema({vol.Required(CONF_PASSWORD): str})
         return self.async_show_form(
@@ -483,15 +469,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             config_entry: config_entries.ConfigEntry,
     ) -> IntuisOptionsFlow:
         """Get the options flow for this handler."""
-        return IntuisOptionsFlow(config_entry)
+        return IntuisOptionsFlow()
 
 
-class IntuisOptionsFlow(config_entries.OptionsFlow):
-    """Handle an options flow for Intuis Connect."""
+class IntuisOptionsFlow(config_entries.OptionsFlowWithReload):
+    """Handle an options flow for Intuis Connect.
 
-    def __init__(self, entry: config_entries.ConfigEntry) -> None:
+    Home Assistant reloads the entry when the flow ends with changed options,
+    so the integration needs no update listener.
+    """
+
+    def __init__(self) -> None:
         """Initialize options flow."""
-        self._entry = entry
         self._override_options: dict[str, Any] = {}
 
     async def async_step_init(
@@ -514,7 +503,7 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
             {
                 vol.Optional(
                     CONF_INDEFINITE_MODE,
-                    default=self._entry.options.get(
+                    default=self.config_entry.options.get(
                         CONF_INDEFINITE_MODE, DEFAULT_INDEFINITE_MODE
                     ),
                 ): BooleanSelector(),
@@ -539,15 +528,15 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
             return await self.async_step_energy()
 
         # Get current values (convert to string for dropdown)
-        manual_duration = str(self._entry.options.get(CONF_MANUAL_DURATION, DEFAULT_MANUAL_DURATION))
-        away_duration = str(self._entry.options.get(CONF_AWAY_DURATION, DEFAULT_AWAY_DURATION))
-        boost_duration = str(self._entry.options.get(CONF_BOOST_DURATION, DEFAULT_BOOST_DURATION))
+        manual_duration = str(self.config_entry.options.get(CONF_MANUAL_DURATION, DEFAULT_MANUAL_DURATION))
+        away_duration = str(self.config_entry.options.get(CONF_AWAY_DURATION, DEFAULT_AWAY_DURATION))
+        boost_duration = str(self.config_entry.options.get(CONF_BOOST_DURATION, DEFAULT_BOOST_DURATION))
 
         options_schema = vol.Schema(
             {
                 vol.Optional(
                     CONF_AWAY_TEMP,
-                    default=self._entry.options.get(
+                    default=self.config_entry.options.get(
                         CONF_AWAY_TEMP, DEFAULT_AWAY_TEMP
                     ),
                 ): NumberSelector(
@@ -555,7 +544,7 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
                 ),
                 vol.Optional(
                     CONF_BOOST_TEMP,
-                    default=self._entry.options.get(
+                    default=self.config_entry.options.get(
                         CONF_BOOST_TEMP, DEFAULT_BOOST_TEMP
                     ),
                 ): NumberSelector(
@@ -615,7 +604,7 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
         ]
 
         # Get current reset hour value
-        current_reset_hour = self._entry.options.get(
+        current_reset_hour = self.config_entry.options.get(
             CONF_ENERGY_RESET_HOUR, DEFAULT_ENERGY_RESET_HOUR
         )
 
@@ -623,7 +612,7 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
             {
                 vol.Optional(
                     CONF_ENERGY_SCALE,
-                    default=self._entry.options.get(
+                    default=self.config_entry.options.get(
                         CONF_ENERGY_SCALE, DEFAULT_ENERGY_SCALE
                     ),
                 ): SelectSelector(
@@ -685,19 +674,19 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
             return await self.async_step_energy_cost()
 
         # Get current values
-        current_rate_limit = self._entry.options.get(
+        current_rate_limit = self.config_entry.options.get(
             CONF_RATE_LIMIT_DELAY, DEFAULT_RATE_LIMIT_DELAY
         )
-        current_threshold = self._entry.options.get(
+        current_threshold = self.config_entry.options.get(
             CONF_CIRCUIT_BREAKER_THRESHOLD, DEFAULT_CIRCUIT_THRESHOLD
         )
-        current_max_interval = self._entry.options.get(
+        current_max_interval = self.config_entry.options.get(
             CONF_MAX_UPDATE_INTERVAL, DEFAULT_MAX_UPDATE_INTERVAL
         )
-        current_hourly_stats_enabled = self._entry.options.get(
+        current_hourly_stats_enabled = self.config_entry.options.get(
             CONF_HOURLY_STATS_ENABLED, DEFAULT_HOURLY_STATS_ENABLED
         )
-        current_hourly_stats_interval = self._entry.options.get(
+        current_hourly_stats_interval = self.config_entry.options.get(
             CONF_HOURLY_STATS_INTERVAL, DEFAULT_HOURLY_STATS_INTERVAL
         )
 
@@ -772,23 +761,23 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
             }
             return self.async_create_entry(title="", data=all_options)
 
-        current_price_entity = self._entry.options.get(CONF_ENERGY_PRICE_ENTITY, DEFAULT_ENERGY_PRICE_ENTITY) or None
+        current_price_entity = self.config_entry.options.get(CONF_ENERGY_PRICE_ENTITY, DEFAULT_ENERGY_PRICE_ENTITY) or None
 
         options_schema = vol.Schema(
             {
                 vol.Optional(
                     CONF_ENERGY_COST_ENABLED,
-                    default=self._entry.options.get(CONF_ENERGY_COST_ENABLED, DEFAULT_ENERGY_COST_ENABLED),
+                    default=self.config_entry.options.get(CONF_ENERGY_COST_ENABLED, DEFAULT_ENERGY_COST_ENABLED),
                 ): BooleanSelector(),
                 vol.Optional(
                     CONF_ENERGY_PRICE_MODE,
-                    default=self._entry.options.get(CONF_ENERGY_PRICE_MODE, DEFAULT_ENERGY_PRICE_MODE),
+                    default=self.config_entry.options.get(CONF_ENERGY_PRICE_MODE, DEFAULT_ENERGY_PRICE_MODE),
                 ): SelectSelector(
                     SelectSelectorConfig(options=ENERGY_PRICE_MODE_OPTIONS, mode=SelectSelectorMode.DROPDOWN, translation_key="energy_price_mode")
                 ),
                 vol.Optional(
                     CONF_ENERGY_FIXED_PRICE,
-                    default=self._entry.options.get(CONF_ENERGY_FIXED_PRICE, DEFAULT_ENERGY_FIXED_PRICE),
+                    default=self.config_entry.options.get(CONF_ENERGY_FIXED_PRICE, DEFAULT_ENERGY_FIXED_PRICE),
                 ): NumberSelector(
                     NumberSelectorConfig(min=0.0, max=5.0, step="any", mode=NumberSelectorMode.BOX, unit_of_measurement="/kWh")
                 ),

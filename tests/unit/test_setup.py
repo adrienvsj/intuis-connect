@@ -148,21 +148,60 @@ async def test_refused_token_starts_reauth(hass, mock_api, no_http):
     assert any(flow["context"]["source"] == "reauth" for flow in hass.config_entries.flow.async_progress())
 
 
-async def test_only_option_changes_reload(hass, mock_api, no_http):
-    """Token updates and the history-import flag must not reload the entry."""
+async def test_only_the_options_flow_reloads(hass, mock_api, no_http):
+    """Token updates and the history-import flag never reload; saving changed options does."""
+    from homeassistant.data_entry_flow import FlowResultType
+
     entry = _entry(hass, import_history=True, import_history_days=0)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload:
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
         hass.config_entries.async_update_entry(entry, data={**entry.data, "refresh_token": "new"})
         hass.config_entries.async_update_entry(entry, options={**entry.options, "import_history": False})
         await hass.async_block_till_done()
         reload.assert_not_called()
 
-        hass.config_entries.async_update_entry(entry, options={**entry.options, "manual_duration": 60})
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        for _step in ("indefinite", "energy", "rate_limit"):
+            result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+            if result["step_id"] == "overrides":
+                result = await hass.config_entries.options.async_configure(
+                    result["flow_id"], {"manual_duration": "120"}
+                )
+        while result["type"] is FlowResultType.FORM:
+            result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+        assert result["type"] is FlowResultType.CREATE_ENTRY
         await hass.async_block_till_done()
-        reload.assert_awaited_once_with(entry.entry_id)
+        reload.assert_called_once_with(entry.entry_id)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_reauth_updates_the_token_and_reloads(hass, mock_api, no_http):
+    """A refused token leads to a reauth flow that stores the new token."""
+    from homeassistant.data_entry_flow import FlowResultType
+
+    mock_api.async_refresh_access_token.side_effect = InvalidAuth("refused")
+    entry = _entry(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    flow = next(f for f in hass.config_entries.flow.async_progress() if f["context"]["source"] == "reauth")
+
+    new_api = MagicMock(refresh_token="fresh")
+    mock_api.async_refresh_access_token.side_effect = None
+    with patch(
+        "custom_components.intuis_connect.config_flow.async_validate_api",
+        return_value=([{"id": HOME_ID, "name": "Maison"}], new_api),
+    ):
+        result = await hass.config_entries.flow.async_configure(flow["flow_id"], {"password": "new"})
+        await hass.async_block_till_done()
+
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    assert entry.data["refresh_token"] == "fresh"
+    assert entry.data["home_id"] == HOME_ID
+    assert entry.state is ConfigEntryState.LOADED
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()

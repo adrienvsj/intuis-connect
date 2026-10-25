@@ -76,28 +76,6 @@ PLATFORMS: list[Platform] = [
 ]
 
 
-# One-shot flags cleared by the integration itself: changing them must not reload
-# the entry (a reload would cancel the history import that just started).
-_OPTIONS_IGNORED_FOR_RELOAD = (CONF_IMPORT_HISTORY, CONF_IMPORT_HISTORY_DAYS)
-# hass.data[DOMAIN] key holding, per entry, the options the entry was set up with
-_OPTIONS_SNAPSHOTS = "_options_snapshots"
-
-
-def _options_for_reload(options) -> dict:
-    """Return the options whose change requires a reload."""
-    return {k: v for k, v in options.items() if k not in _OPTIONS_IGNORED_FOR_RELOAD}
-
-
-async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload the entry when its options change (data-only updates are ignored)."""
-    snapshot = hass.data.get(DOMAIN, {}).get(_OPTIONS_SNAPSHOTS, {}).get(entry.entry_id)
-    if snapshot is not None and _options_for_reload(entry.options) == _options_for_reload(snapshot):
-        _LOGGER.debug("Entry %s updated without option changes, not reloading", entry.entry_id)
-        return
-    _LOGGER.debug("Reloading entry %s due to options update", entry.entry_id)
-    await hass.config_entries.async_reload(entry.entry_id)
-
-
 @callback
 def _async_migrate_cost_entity_ids(hass: HomeAssistant, intuis_home) -> None:
     """Move cost sensors from the old "_energy_cost" unique_id to "_cost".
@@ -222,9 +200,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Intuis Connect from a config entry."""
     _LOGGER.debug("Setting up entry %s", entry.entry_id)
     hass.data.setdefault(DOMAIN, {})
-    # Taken before anything can update the entry (e.g. a renewed refresh token)
-    hass.data[DOMAIN].setdefault(_OPTIONS_SNAPSHOTS, {})[entry.entry_id] = dict(entry.options)
-    entry.async_on_unload(entry.add_update_listener(update_listener))
 
     # ---------- setup API ----------------------------------------------------------
     session = async_get_clientsession(hass)
@@ -496,7 +471,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
-        hass.data[DOMAIN].get(_OPTIONS_SNAPSHOTS, {}).pop(entry.entry_id, None)
         _LOGGER.debug("Unloaded entry %s", entry.entry_id)
     return unload_ok
 

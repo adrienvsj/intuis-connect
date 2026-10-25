@@ -28,6 +28,10 @@ commands, climate on/off, cleaner device and entity names (entity IDs are
 unchanged), a safe cost-entity migration, multi-home fixes, and an
 up-to-date CI (tests on Python 3.14, hassfest, HACS validation).
 
+Version **2.2.1** adds the Intuis icon and logo, with a dark-theme logo. Home
+Assistant 2026.10 and later shows them from the integration's own `brand`
+folder, instead of the "icon not available" placeholder.
+
 Issues and pull requests are welcome on
 [this repository](https://github.com/adrienvsj/intuis-connect/issues).
 When reporting a problem, attach the integration diagnostics

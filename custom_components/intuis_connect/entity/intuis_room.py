@@ -13,6 +13,12 @@ from ..utils.const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def is_pilot_wire(muller_type: str | None) -> bool:
+    """Return True for pilot-wire radiators (FP4…), which take orders instead of temperatures."""
+    # ponytail: prefix heuristic on muller_type; switch to an API capability field if Intuis ever exposes one
+    return bool(muller_type) and muller_type.startswith("FP")
+
+
 class IntuisRoomDefinition:
     """Class to define a room in the Intuis Connect system."""
 
@@ -49,7 +55,8 @@ class IntuisRoom:
     def __init__(self, definition: IntuisRoomDefinition, id: str, name: str, mode: str, target_temperature: float,
                  temperature: float, presence: bool, open_window: bool, anticipation: bool,
                  muller_type: str, boost_status: str, modules: list[IntuisModule], therm_setpoint_end_time: int,
-                 bridge_id: str | None = None, heating: bool = False) -> None:
+                 bridge_id: str | None = None, heating: bool = False,
+                 therm_setpoint_fp: str | None = None) -> None:
         """Initialize the room with its definition."""
         self.definition = definition
         self.id = id
@@ -66,6 +73,7 @@ class IntuisRoom:
         self.therm_setpoint_end_time = therm_setpoint_end_time
         self.bridge_id = bridge_id
         self.heating = heating
+        self.therm_setpoint_fp = therm_setpoint_fp
         # Accumulated counters (updated by mapper, not from API)
         self.minutes: float = 0.0
         self.energy: float = 0.0
@@ -155,6 +163,7 @@ class IntuisRoom:
             modules=filtered_modules,
             bridge_id=bridge_id,
             heating=heating,
+            therm_setpoint_fp=data.get("therm_setpoint_fp"),
         )
 
     def __repr__(self) -> str:

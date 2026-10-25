@@ -108,6 +108,20 @@
 
 All preset durations and temperatures are configurable in the integration options.
 
+### Pilot-wire radiators (FP4)
+
+Some radiators (`Device Type` sensor = `FP4`) take pilot-wire orders instead of temperatures: the temperature of each order is set on the radiator itself, and the API reports neither a measured temperature nor a setpoint. For these rooms the climate entity drops the temperature dial and shows the active order instead.
+
+| Control | Meaning |
+|---------|---------|
+| Mode **Auto** | Order comes from the schedule |
+| Mode **Heat** | Manual order (selecting it sends Comfort) |
+| Mode **Off** | Radiator off |
+| Preset **Comfort** / **Eco** | Manual Comfort / Eco order, for the manual override duration |
+| Preset **Frost protection** | Frost protection (`hg`), for the frost protection duration |
+
+The entity also exposes `pilot_wire_order` (`comfort`, `away` = eco, `frost_guard`) and `setpoint_source` (`schedule` or `manual`); the end of the current order is in the `Setpoint end time` sensor. Away and Boost are not offered: the API rejects them for a single pilot-wire room. Return to the schedule with Mode **Auto**.
+
 ---
 
 ## Services

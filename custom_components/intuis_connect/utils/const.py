@@ -68,6 +68,12 @@ PRESET_BOOST = "boost"
 PRESET_FROST_PROTECT = "eco" #frost_protect is not recognized / translated by HA. PR on going on core to add this preset on native climate entity
 SUPPORTED_PRESETS: list[str] = [PRESET_SCHEDULE, PRESET_AWAY, PRESET_BOOST, PRESET_FROST_PROTECT]
 
+# Presets of pilot-wire rooms (muller_type FPx): orders, not temperatures
+PRESET_COMFORT = "comfort"
+PRESET_ECO = "eco"
+PRESET_PILOT_WIRE_FROST = "frost_protect"  # translated through the climate translation_key
+PILOT_WIRE_PRESETS: list[str] = [PRESET_COMFORT, PRESET_ECO, PRESET_PILOT_WIRE_FROST]
+
 # Options
 CONF_MANUAL_DURATION = "manual_duration"
 CONF_AWAY_DURATION = "away_duration"
@@ -160,6 +166,11 @@ API_MODE_MANUAL = "manual"
 API_MODE_AWAY = "away"
 API_MODE_BOOST = "boost"
 API_MODE_HG = "hg"  # Hors-Gel (Frost Protection)
+
+# Pilot-wire orders (therm_setpoint_fp)
+API_FP_COMFORT = "comfort"
+API_FP_ECO = "away"
+API_FP_FROST = "frost_guard"
 
 # Rate limiting configuration
 CONF_RATE_LIMIT_DELAY = "rate_limit_delay"

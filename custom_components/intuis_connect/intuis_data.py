@@ -15,7 +15,6 @@ from .entity.intuis_home_config import IntuisHomeConfig
 from .intuis_api.api import IntuisAPI, APIError, CannotConnect, RateLimitError
 from .intuis_api.mapper import extract_modules, extract_rooms
 from .utils.const import (
-    API_MODE_MANUAL,
     API_MODE_AWAY,
     API_MODE_BOOST,
     API_MODE_HG,
@@ -208,6 +207,7 @@ class IntuisData:
                             desired_mode,
                             float(desired_temp) if desired_temp is not None else None,
                             duration_min,
+                            **({"fp": override["fp"]} if override.get("fp") else {}),
                         )
                         # Update timestamps
                         self._overrides[room_id]["end"] = now_ts + duration_min * 60

@@ -21,18 +21,23 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.helpers.event import async_call_later
 
 from .intuis_api.api import IntuisAPI
-from .entity.intuis_room import IntuisRoom
+from .entity.intuis_room import IntuisRoom, is_pilot_wire
 from .utils.const import (
     PRESET_AWAY, PRESET_BOOST, PRESET_SCHEDULE, PRESET_FROST_PROTECT, API_MODE_OFF, API_MODE_AUTO, API_MODE_MANUAL,
     API_MODE_AWAY, API_MODE_BOOST, API_MODE_HG, API_MODE_HOME, DEFAULT_AWAY_TEMP, DEFAULT_AWAY_DURATION, DEFAULT_BOOST_TEMP,
     DEFAULT_BOOST_DURATION, DEFAULT_FROST_PROTECT_TEMP, DEFAULT_FROST_PROTECT_DURATION, DEFAULT_MANUAL_DURATION, DOMAIN,
     CONF_MANUAL_DURATION, CONF_AWAY_DURATION, CONF_BOOST_DURATION, CONF_FROST_PROTECT_DURATION,
     CONF_AWAY_TEMP, CONF_BOOST_TEMP, CONF_FROST_PROTECT_TEMP,
+    PRESET_COMFORT, PRESET_ECO, PRESET_PILOT_WIRE_FROST, PILOT_WIRE_PRESETS,
+    API_FP_COMFORT, API_FP_ECO, API_FP_FROST,
 )
 from .entity.intuis_entity import IntuisEntity, IntuisDataUpdateCoordinator
 from .utils.helper import get_basic_utils
 
 _LOGGER = logging.getLogger(__name__)
+
+_PRESET_TO_FP = {PRESET_COMFORT: API_FP_COMFORT, PRESET_ECO: API_FP_ECO}
+_FP_TO_PRESET = {API_FP_COMFORT: PRESET_COMFORT, API_FP_ECO: PRESET_ECO, API_FP_FROST: PRESET_PILOT_WIRE_FROST}
 
 
 class IntuisConnectClimate(
@@ -232,31 +237,49 @@ class IntuisConnectClimate(
         temp = kwargs.get("temperature")
         if temp is None:
             return
-        room_id = self._get_room().id
-        manual_duration = self._get_option(CONF_MANUAL_DURATION, DEFAULT_MANUAL_DURATION)
-        await self._api.async_set_room_state(
-            room_id, API_MODE_MANUAL, float(temp), manual_duration
-        )
-        now_ts = int(time.time())
-        end_ts = now_ts + manual_duration * 60
-        overrides = self._get_overrides()
-        overrides[room_id] = {
-            "mode": API_MODE_MANUAL,
-            "temp": float(temp),
-            "end": end_ts,
-            "sticky": True,
-            "last_reapply": now_ts,
-        }
-        # Persist overrides to storage
-        save_overrides = self._get_save_overrides()
-        if save_overrides:
-            await save_overrides()
-        self._schedule_end_refresh(end_ts)
+        await self._async_apply_manual(self._get_room().id, temp=float(temp))
         self._attr_target_temperature = temp
         self._attr_hvac_mode = HVACMode.HEAT
         self._attr_preset_mode = None
         self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
+
+    async def _async_apply_manual(self, room_id: str, temp: float | None = None, fp: str | None = None) -> None:
+        """Send a manual setpoint (temperature or pilot-wire order) and keep it as a sticky override."""
+        manual_duration = self._get_option(CONF_MANUAL_DURATION, DEFAULT_MANUAL_DURATION)
+        if fp is None:
+            await self._api.async_set_room_state(room_id, API_MODE_MANUAL, temp, manual_duration)
+        else:
+            await self._api.async_set_room_state(room_id, API_MODE_MANUAL, duration=manual_duration, fp=fp)
+        now_ts = int(time.time())
+        end_ts = now_ts + manual_duration * 60
+        override = {"mode": API_MODE_MANUAL, "temp": temp, "end": end_ts, "sticky": True, "last_reapply": now_ts}
+        if fp is not None:
+            override["fp"] = fp
+        self._get_overrides()[room_id] = override
+        save_overrides = self._get_save_overrides()
+        if save_overrides:
+            await save_overrides()
+        self._schedule_end_refresh(end_ts)
+
+    async def _async_apply_frost_protect(self, room_id: str) -> None:
+        """Send frost protection (hg) and keep it as a sticky override."""
+        frost_protect_temp = self._get_option(CONF_FROST_PROTECT_TEMP, DEFAULT_FROST_PROTECT_TEMP)
+        frost_protect_duration = self._get_option(CONF_FROST_PROTECT_DURATION, DEFAULT_FROST_PROTECT_DURATION)
+        await self._api.async_set_room_state(room_id, API_MODE_HG, frost_protect_temp, frost_protect_duration)
+        now_ts = int(time.time())
+        end_ts = now_ts + frost_protect_duration * 60
+        self._get_overrides()[room_id] = {
+            "mode": API_MODE_HG,
+            "temp": float(frost_protect_temp),
+            "end": end_ts,
+            "sticky": True,
+            "last_reapply": now_ts,
+        }
+        save_overrides = self._get_save_overrides()
+        if save_overrides:
+            await save_overrides()
+        self._schedule_end_refresh(end_ts)
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new hvac mode."""
@@ -279,22 +302,7 @@ class IntuisConnectClimate(
             self._attr_hvac_mode = HVACMode.AUTO
             self._attr_preset_mode = PRESET_SCHEDULE
         elif hvac_mode == HVACMode.HEAT:
-            temp = float(self.target_temperature or 20.0)
-            manual_duration = self._get_option(CONF_MANUAL_DURATION, DEFAULT_MANUAL_DURATION)
-            await self._api.async_set_room_state(
-                room_id, API_MODE_MANUAL, temp, manual_duration
-            )
-            now_ts = int(time.time())
-            end_ts = now_ts + manual_duration * 60
-            overrides[room_id] = {
-                "mode": API_MODE_MANUAL,
-                "temp": temp,
-                "end": end_ts,
-                "sticky": True,
-                "last_reapply": now_ts,
-            }
-            overrides_changed = True
-            self._schedule_end_refresh(end_ts)
+            await self._async_apply_manual(room_id, temp=float(self.target_temperature or 20.0))
             self._attr_hvac_mode = HVACMode.HEAT
             self._attr_preset_mode = None
 
@@ -362,26 +370,8 @@ class IntuisConnectClimate(
             overrides_changed = True
             self._schedule_end_refresh(end_ts)
         elif preset_mode == PRESET_FROST_PROTECT:
-            frost_protect_temp = self._get_option(CONF_FROST_PROTECT_TEMP, DEFAULT_FROST_PROTECT_TEMP)
-            frost_protect_duration = self._get_option(CONF_FROST_PROTECT_DURATION, DEFAULT_FROST_PROTECT_DURATION)
-            await self._api.async_set_room_state(
-                room_id,
-                API_MODE_HG,
-                frost_protect_temp,
-                frost_protect_duration,
-            )
+            await self._async_apply_frost_protect(room_id)
             self._attr_hvac_mode = HVACMode.AUTO
-            now_ts = int(time.time())
-            end_ts = now_ts + frost_protect_duration * 60
-            overrides[room_id] = {
-                "mode": API_MODE_HG,
-                "temp": float(frost_protect_temp),
-                "end": end_ts,
-                "sticky": True,
-                "last_reapply": now_ts,
-            }
-            overrides_changed = True
-            self._schedule_end_refresh(end_ts)
 
         # Persist overrides to storage
         if overrides_changed:
@@ -394,6 +384,72 @@ class IntuisConnectClimate(
         await self.coordinator.async_request_refresh()
 
 
+class IntuisPilotWireClimate(IntuisConnectClimate):
+    """Pilot-wire radiator: driven by orders (comfort/eco/frost) and read live from the room."""
+
+    _attr_preset_modes = PILOT_WIRE_PRESETS
+    _attr_supported_features = ClimateEntityFeature.PRESET_MODE
+    _attr_translation_key = "intuis_room"
+
+    @property
+    def current_temperature(self) -> StateType:
+        """The API reports no measured temperature for pilot-wire rooms."""
+        return None
+
+    @property
+    def target_temperature(self) -> StateType:
+        """Pilot-wire rooms have orders, not temperature setpoints."""
+        return None
+
+    @property
+    def hvac_mode(self) -> HVACMode | None:
+        """Return AUTO when the order comes from the home (schedule or away), HEAT for a manual order."""
+        room = self._get_room()
+        if room is None:
+            return None
+        if room.mode == API_MODE_OFF:
+            return HVACMode.OFF
+        return HVACMode.AUTO if room.mode in (API_MODE_HOME, API_MODE_AUTO, API_MODE_AWAY) else HVACMode.HEAT
+
+    @property
+    def preset_mode(self) -> str | None:
+        """Return the active pilot-wire order as a preset."""
+        room = self._get_room()
+        if room is None or room.mode == API_MODE_OFF:
+            return None
+        if room.mode == API_MODE_HG:
+            return PRESET_PILOT_WIRE_FROST
+        return _FP_TO_PRESET.get(room.therm_setpoint_fp)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Expose the raw order and whether it comes from the schedule."""
+        room = self._get_room()
+        if room is None:
+            return None
+        return {
+            "pilot_wire_order": room.therm_setpoint_fp,
+            "setpoint_source": "schedule" if self.hvac_mode == HVACMode.AUTO else "manual",
+        }
+
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
+        """HEAT means a manual Comfort order; other modes behave as for temperature rooms."""
+        if hvac_mode == HVACMode.HEAT:
+            await self._async_apply_manual(self._get_room().id, fp=API_FP_COMFORT)
+            await self.coordinator.async_request_refresh()
+        else:
+            await super().async_set_hvac_mode(hvac_mode)
+
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Send the pilot-wire order matching the preset."""
+        room_id = self._get_room().id
+        if preset_mode == PRESET_PILOT_WIRE_FROST:
+            await self._async_apply_frost_protect(room_id)
+        else:
+            await self._async_apply_manual(room_id, fp=_PRESET_TO_FP[preset_mode])
+        await self.coordinator.async_request_refresh()
+
+
 async def async_setup_entry(
         hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -402,7 +458,7 @@ async def async_setup_entry(
 
     entities = []
     for room_id in rooms:
-        entities.append(
-            IntuisConnectClimate(coordinator, home_id, rooms.get(room_id), api, entry.entry_id)
-        )
+        room = rooms.get(room_id)
+        climate_cls = IntuisPilotWireClimate if is_pilot_wire(room.muller_type) else IntuisConnectClimate
+        entities.append(climate_cls(coordinator, home_id, room, api, entry.entry_id))
     async_add_entities(entities, update_before_add=True)

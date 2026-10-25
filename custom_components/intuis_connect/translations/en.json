@@ -1,4 +1,27 @@
 {
+  "entity": {
+    "climate": {
+      "intuis_room": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "frost_protect": "Frost protection"
+            }
+          },
+          "pilot_wire_order": {
+            "name": "Pilot-wire order"
+          },
+          "setpoint_source": {
+            "name": "Setpoint source",
+            "state": {
+              "schedule": "Schedule",
+              "manual": "Manual"
+            }
+          }
+        }
+      }
+    }
+  },
   "services": {
     "switch_schedule": {
       "name": "Switch Schedule",

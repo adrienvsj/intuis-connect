@@ -1,4 +1,27 @@
 {
+  "entity": {
+    "climate": {
+      "intuis_room": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "frost_protect": "Hors-gel"
+            }
+          },
+          "pilot_wire_order": {
+            "name": "Ordre fil pilote"
+          },
+          "setpoint_source": {
+            "name": "Origine de la consigne",
+            "state": {
+              "schedule": "Planning",
+              "manual": "Manuelle"
+            }
+          }
+        }
+      }
+    }
+  },
   "services": {
     "switch_schedule": {
       "name": "Changer de programme",

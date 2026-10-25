@@ -1,0 +1,15 @@
+{
+  "entity": {
+    "climate": {
+      "intuis_room": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "frost_protect": "mdi:snowflake"
+            }
+          }
+        }
+      }
+    }
+  }
+}

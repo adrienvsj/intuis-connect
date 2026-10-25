@@ -4,14 +4,8 @@ from __future__ import annotations
 import pytest
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
-from freezegun import freeze_time
 
 # Import the module under test
-from custom_components.intuis_connect.intuis_data import (
-    IntuisData,
-    INDEFINITE_REAPPLY_BUFFER,
-    MIN_REAPPLY_INTERVAL,
-)
 from custom_components.intuis_connect.utils.const import (
     API_MODE_MANUAL,
     API_MODE_AWAY,
@@ -85,6 +79,51 @@ class TestIndefiniteMode:
 
         # Verify storage was saved
         mock_save_overrides.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_reapply_keeps_pilot_wire_order(
+        self,
+        intuis_data_factory,
+        mock_api,
+        mock_save_overrides,
+        sample_room_data,
+        indefinite_mode_options,
+    ):
+        """A pilot-wire override is re-applied with its order, not a temperature."""
+        now = int(time.time())
+        overrides = {
+            "room_123": {
+                "mode": API_MODE_MANUAL,
+                "temp": None,
+                "fp": "away",
+                "end": now + 120,
+                "sticky": True,
+                "last_reapply": now - 180,
+            }
+        }
+        intuis_data = intuis_data_factory(
+            overrides=overrides,
+            options=indefinite_mode_options,
+            api=mock_api,
+            save_callback=mock_save_overrides,
+        )
+        mock_api.async_get_home_status.return_value = {"body": {"home": {"id": "home_123", "rooms": [], "modules": []}}}
+
+        with patch(
+            "custom_components.intuis_connect.intuis_data.extract_rooms",
+            return_value=sample_room_data,
+        ), patch(
+            "custom_components.intuis_connect.intuis_data.extract_modules",
+            return_value={},
+        ), patch(
+            "custom_components.intuis_connect.intuis_data.IntuisHomeConfig.from_dict",
+            return_value=MagicMock(),
+        ):
+            await intuis_data.async_update()
+
+        mock_api.async_set_room_state.assert_called_once_with(
+            "room_123", API_MODE_MANUAL, None, 5, fp="away"
+        )
 
     @pytest.mark.asyncio
     async def test_no_reapply_outside_buffer(

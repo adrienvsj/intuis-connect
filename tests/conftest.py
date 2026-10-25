@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from typing import Any
 
 # Add the custom_components to the path
@@ -304,6 +304,7 @@ def climate_entity_factory(mock_hass, mock_coordinator, mock_api, mock_config_en
         room=None,
         options: dict | None = None,
         overrides: dict | None = None,
+        entity_cls=IntuisConnectClimate,
     ):
         # Setup hass.data
         entry_id = mock_config_entry.entry_id
@@ -323,7 +324,7 @@ def climate_entity_factory(mock_hass, mock_coordinator, mock_api, mock_config_en
         mock_hass.config_entries.async_get_entry = MagicMock(return_value=mock_config_entry)
 
         # Create entity
-        entity = IntuisConnectClimate(
+        entity = entity_cls(
             coordinator=mock_coordinator,
             home_id="home_123",
             room=room or sample_room,

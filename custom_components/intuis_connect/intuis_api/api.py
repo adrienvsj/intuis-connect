@@ -255,12 +255,15 @@ class IntuisAPI:
         self._refresh_token_callback = callback
 
     # ---------- internal helpers ------------------------------------------------
+    # Errors raised to the caller are logged at debug level only: the caller
+    # (coordinator, config flow or service) reports them once, and payloads can
+    # contain account details.
     async def _ensure_token(self) -> None:
         """Ensure the access token is valid, refreshing it if necessary."""
         if self._debug:
             _LOGGER.debug("Ensuring access token is valid")
         if self._access_token is None:
-            _LOGGER.error("No access token available, authentication required")
+            _LOGGER.debug("No access token available, authentication required")
             raise InvalidAuth("No access token – login first")
         if self._expiry and asyncio.get_running_loop().time() > self._expiry - 60:
             if self._debug:
@@ -393,7 +396,7 @@ class IntuisAPI:
                         continue
 
                     # No more rate limit retries
-                    _LOGGER.error(
+                    _LOGGER.debug(
                         "Rate limit exceeded for %s after %s attempts",
                         path, attempt
                     )
@@ -420,12 +423,12 @@ class IntuisAPI:
                     error_body = ""
                     try:
                         error_body = await resp.text()
-                        _LOGGER.error(
+                        _LOGGER.debug(
                             "API client error %s for %s %s. Response body: %s",
                             resp.status, method, path, error_body[:1000]
                         )
                     except Exception as read_err:
-                        _LOGGER.error(
+                        _LOGGER.debug(
                             "API client error %s for %s %s (could not read body: %s)",
                             resp.status, method, path, read_err
                         )
@@ -451,7 +454,7 @@ class IntuisAPI:
                         error_details = f" - {e.message}"
                 except Exception:
                     pass
-                _LOGGER.error("API request failed for %s: %s%s", path, e, error_details)
+                _LOGGER.debug("API request failed for %s: %s%s", path, e, error_details)
                 raise APIError(f"Request failed for {path}: {e.status}{error_details}") from e
             except (TimeoutError, aiohttp.ClientError) as e:
                 last_exc = e
@@ -463,7 +466,7 @@ class IntuisAPI:
                     await asyncio.sleep(server_delay)
                     server_delay *= 2
                     continue
-                _LOGGER.error(
+                _LOGGER.debug(
                     "Cannot connect to API for %s after %s attempts: %s",
                     path, server_attempts, e
                 )
@@ -528,9 +531,9 @@ class IntuisAPI:
                 continue
         else:
             if auth_rejected and not connection_failed:
-                _LOGGER.error("Login refused: invalid username or password")
+                _LOGGER.debug("Login refused: invalid username or password")
                 raise InvalidAuth("Invalid username or password")
-            _LOGGER.error("Unable to log in on any cluster")
+            _LOGGER.debug("Unable to log in on any cluster")
             raise CannotConnect("Unable to log in on any cluster")
 
         # Fetch all available homes
@@ -538,7 +541,7 @@ class IntuisAPI:
             _LOGGER.debug("Retrieving all homes post-login")
         homes = await self.async_get_all_homes()
         if not homes:
-            _LOGGER.error("Login completed but no home associated with account")
+            _LOGGER.debug("Login completed but no home associated with account")
             raise InvalidAuth("No home associated with account")
         if self._debug:
             _LOGGER.debug("Login completed, found %d homes", len(homes))
@@ -576,7 +579,7 @@ class IntuisAPI:
             masked_token = f"***{self._refresh_token[-4:]}" if self._refresh_token else "None"
             _LOGGER.debug("Refreshing access token using refresh_token=%s", masked_token)
         if not self._refresh_token:
-            _LOGGER.error("No refresh token saved, cannot refresh access token")
+            _LOGGER.debug("No refresh token saved, cannot refresh access token")
             raise InvalidAuth("No refresh token saved")
         payload = {
             "grant_type": "refresh_token",
@@ -620,7 +623,7 @@ class IntuisAPI:
 
         homes_raw = data.get("body", {}).get("homes", [])
         if not homes_raw:
-            _LOGGER.error("No homes found in API response: %s", data)
+            _LOGGER.debug("No homes found in API response: %s", data)
             raise APIError("No homes found")
 
         homes = []
@@ -647,7 +650,7 @@ class IntuisAPI:
 
         homes = data.get("body", {}).get("homes", [])
         if not homes:
-            _LOGGER.error("Homes data response is empty or malformed: %s", data)
+            _LOGGER.debug("Homes data response is empty or malformed: %s", data)
             raise APIError("Empty homesdata response")
 
         # Find the target home
@@ -660,7 +663,7 @@ class IntuisAPI:
                     home = h
                     break
             if not home:
-                _LOGGER.error("Home %s not found in API response", search_id)
+                _LOGGER.debug("Home %s not found in API response", search_id)
                 raise APIError(f"Home {search_id} not found")
         else:
             # Fall back to first home (backward compatible)
@@ -686,7 +689,7 @@ class IntuisAPI:
             _LOGGER.debug("Home status response: %s", result)
         home = result.get("body", {}).get("home", {})
         if not home:
-            _LOGGER.error("Home status response is empty or malformed: %s", result)
+            _LOGGER.debug("Home status response is empty or malformed: %s", result)
             raise APIError("Empty home status response")
         return home
 
@@ -702,7 +705,7 @@ class IntuisAPI:
         _LOGGER.debug("Home configurations response: %s", result)
         home = result.get("body", {}).get("home", {})
         if not home:
-            _LOGGER.error("Home configurations response is empty or malformed: %s", result)
+            _LOGGER.debug("Home configurations response is empty or malformed: %s", result)
             raise APIError("Empty home configurations response")
         return home
 
@@ -1152,7 +1155,7 @@ class IntuisAPI:
             _LOGGER.info("Schedule %s synced successfully", schedule_name)
         except aiohttp.ClientResponseError as e:
             # Try to get more details from the response
-            _LOGGER.error(
+            _LOGGER.debug(
                 "Sync schedule failed with status %s for payload: %s",
                 e.status,
                 payload,

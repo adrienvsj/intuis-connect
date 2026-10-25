@@ -200,7 +200,8 @@
     },
     "abort": {
       "reauth_successful": "Re-authentication successful.",
-      "all_homes_configured": "All homes from this account are already configured."
+      "all_homes_configured": "All homes from this account are already configured.",
+      "already_configured": "This account is already configured."
     }
   },
   "options": {
@@ -287,6 +288,14 @@
         "fixed": "Fixed price (€/kWh)",
         "entity": "Home Assistant entity (dynamic price)"
       }
+    }
+  },
+  "exceptions": {
+    "api_error": {
+      "message": "The Intuis cloud request failed: {error}"
+    },
+    "auth_failed": {
+      "message": "The Intuis cloud refused the stored credentials. Re-authenticate the integration."
     }
   }
 }

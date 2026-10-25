@@ -21,6 +21,9 @@ from .utils.const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+# Coordinator-based: no polling per entity
+PARALLEL_UPDATES = 0
+
 # Minutes in a day/week
 MINUTES_IN_DAY = 24 * 60  # 1440
 MINUTES_IN_WEEK = 7 * MINUTES_IN_DAY  # 10080
@@ -263,4 +266,4 @@ async def async_setup_entry(
     if entities:
         _LOGGER.info("Created %d schedule calendar entities", len(entities))
 
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities)

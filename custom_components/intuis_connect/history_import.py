@@ -946,7 +946,10 @@ async def async_import_energy_history(
                                 "Triggering immediate hourly stats update "
                                 "to fill post-import gap"
                             )
-                            hass.async_create_task(updater.async_update())
+                            hass.async_create_background_task(
+                                updater.async_update(),
+                                name="intuis_connect hourly stats after import",
+                            )
                         except Exception as init_err:
                             _LOGGER.warning(
                                 "Failed to set hourly_stats bases: %s", init_err

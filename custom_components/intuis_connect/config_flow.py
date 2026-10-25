@@ -24,7 +24,7 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from .intuis_api.api import CannotConnect, InvalidAuth
+from .intuis_api.api import APIError, CannotConnect, InvalidAuth, RateLimitError
 from .utils.const import (
     CIRCUIT_THRESHOLD_OPTIONS,
     CONF_AWAY_DURATION,
@@ -111,10 +111,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             session = async_get_clientsession(self.hass)
             try:
                 homes, api = await async_validate_api(username, password, session)
-            except CannotConnect:
+            except (CannotConnect, APIError, RateLimitError):
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Unexpected error while validating the account")
+                errors["base"] = "unknown"
             else:
                 self._username = username
                 self._homes = homes
@@ -443,10 +446,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _, api = await async_validate_api(
                     self._username, new_password, session
                 )
-            except CannotConnect:
+            except (CannotConnect, APIError, RateLimitError):
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
+            except Exception:
+                _LOGGER.exception("Unexpected error while validating the account")
+                errors["base"] = "unknown"
             else:
                 assert self._reauth_entry
                 self.hass.config_entries.async_update_entry(

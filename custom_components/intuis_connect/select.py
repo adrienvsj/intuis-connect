@@ -6,16 +6,21 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .entity.intuis_entity import IntuisDataUpdateCoordinator
 from .entity.intuis_schedule import IntuisThermSchedule
-from .intuis_api.api import APIError, CannotConnect, IntuisAPI, RateLimitError
+from .intuis_api.api import IntuisAPI
 from .utils.const import DOMAIN
+from .utils.helper import api_command
 
 _LOGGER = logging.getLogger(__name__)
+
+# Commands go to a rate-limited cloud API: send them one at a time
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
@@ -36,7 +41,7 @@ async def async_setup_entry(
             IntuisScheduleSelect(coordinator, api, intuis_home.id, therm_schedules)
         )
 
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities)
 
 
 class IntuisScheduleSelect(CoordinatorEntity[IntuisDataUpdateCoordinator], SelectEntity):
@@ -95,20 +100,16 @@ class IntuisScheduleSelect(CoordinatorEntity[IntuisDataUpdateCoordinator], Selec
                 return self._id_to_name.get(schedule.id)
         return None
 
+    @api_command
     async def async_select_option(self, option: str) -> None:
         """Change the selected schedule."""
         schedule_id = self._schedule_map.get(option)
         if not schedule_id:
-            _LOGGER.error("Unknown schedule option: %s", option)
-            return
+            raise ServiceValidationError(f"Unknown schedule: {option}")
 
         _LOGGER.info("Switching to schedule: %s (ID: %s)", option, schedule_id)
 
-        try:
-            await self._api.async_switch_schedule(self._home_id, schedule_id)
-        except (APIError, CannotConnect, RateLimitError) as err:
-            _LOGGER.error("Failed to switch schedule: %s", err)
-            raise
+        await self._api.async_switch_schedule(self._home_id, schedule_id)
 
         # Update local state
         for schedule in self._schedules:

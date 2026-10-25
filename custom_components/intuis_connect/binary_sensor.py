@@ -15,6 +15,9 @@ from .entity.intuis_module import NMHIntuisModule
 from .entity.intuis_room import IntuisRoom
 from .utils.helper import get_basic_utils
 
+# Coordinator-based: no polling per entity
+PARALLEL_UPDATES = 0
+
 
 class _Base(CoordinatorEntity[IntuisDataUpdateCoordinator], BinarySensorEntity, IntuisEntity):
     def __init__(
@@ -145,4 +148,4 @@ async def async_setup_entry(
             if isinstance(module, NMHIntuisModule):
                 ent.append(ModuleReachableSensor(coordinator, home_id, room, module))
 
-    async_add_entities(ent, update_before_add=True)
+    async_add_entities(ent)

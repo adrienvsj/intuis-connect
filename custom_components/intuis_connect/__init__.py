@@ -1,7 +1,6 @@
 """Setup for Intuis Connect (v1.10.0)."""
 from __future__ import annotations
 
-import asyncio
 import datetime
 import logging
 from pathlib import Path
@@ -14,6 +13,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.loader import async_get_integration
 
 from .cost_stats import CostStatsUpdater
 from .entity.intuis_entity import IntuisDataUpdateCoordinator
@@ -198,40 +198,40 @@ async def _async_migrate_cost_entity_ids(hass, entry, intuis_home) -> None:
 
 _PLANNING_HTML = Path(__file__).parent / "resources" / "intuis_planning.html"
 
-# Read version once at import time (avoids blocking call warning in async context)
-try:
-    import json as _json
-    _INTEGRATION_VERSION = _json.loads((Path(__file__).parent / "manifest.json").read_text())["version"]
-except Exception:
-    _INTEGRATION_VERSION = "0"
-
 
 class IntuisPlanningView(HomeAssistantView):
     """Serve intuis_planning.html with automatic cache-busting based on integration version."""
 
     url = "/api/intuis_connect/planning"
     name = "api:intuis_connect:planning"
-    requires_auth = False  # The HTML handles its own HA token auth
+    # The page is a static file (no data, no token): it authenticates its own
+    # calls with the frontend's connection or a user-provided token.
+    requires_auth = False
 
-    def __init__(self, html_path: Path) -> None:
+    def __init__(self, hass: HomeAssistant, html_path: Path, version: str) -> None:
         """Initialize."""
+        self._hass = hass
         self._html_path = html_path
-        self._etag = f'"{_INTEGRATION_VERSION}"'
+        self._etag = f'"{version}"'
+        self._html: str | None = None
 
     async def get(self, request):
         """Return the planning HTML file."""
-
         from aiohttp.web import HTTPNotFound, Response
-        if not self._html_path.exists():
-            raise HTTPNotFound()
+
         # Cache-busting: if client sends matching ETag, return 304
         if request.headers.get("If-None-Match") == self._etag:
             return Response(status=304)
-        # Use executor to avoid blocking the event loop
-        loop = asyncio.get_event_loop()
-        html = await loop.run_in_executor(None, self._html_path.read_text, "utf-8")
+        if self._html is None:
+            # Read once, outside the event loop
+            try:
+                self._html = await self._hass.async_add_executor_job(
+                    self._html_path.read_text, "utf-8"
+                )
+            except FileNotFoundError as err:
+                raise HTTPNotFound() from err
         return Response(
-            body=html,
+            body=self._html,
             content_type="text/html",
             charset="utf-8",
             headers={
@@ -239,6 +239,7 @@ class IntuisPlanningView(HomeAssistantView):
                 "Cache-Control": "no-cache",
             },
         )
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Intuis Connect from a config entry."""
@@ -399,7 +400,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ---------- register planning HTML view (auto cache-busting) ------------------
     # Guard: register only once across all entries (route cannot be registered twice)
     if not hass.data[DOMAIN].get("_planning_view_registered"):
-        hass.http.register_view(IntuisPlanningView(_PLANNING_HTML))
+        integration = await async_get_integration(hass, DOMAIN)
+        hass.http.register_view(
+            IntuisPlanningView(hass, _PLANNING_HTML, str(integration.version))
+        )
         hass.data[DOMAIN]["_planning_view_registered"] = True
 
     # ---------- cancel any previous import and trigger new one if requested --------
@@ -428,8 +432,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.data[DOMAIN]["import_managers"] = {}
         hass.data[DOMAIN]["import_managers"][entry.entry_id] = manager
 
-        # Start import in background task
-        hass.async_create_task(
+        # Start import in a background task tied to the entry (cancelled on unload)
+        entry.async_create_background_task(
+            hass,
             async_import_energy_history(
                 hass=hass,
                 api=intuis_api,
@@ -438,7 +443,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 days=import_days,
                 room_filter=None,
                 home_id=entry.data["home_id"],
-            )
+            ),
+            name=f"intuis_connect history import {entry.entry_id}",
         )
 
         # Clear the import flag so it doesn't run again on reload

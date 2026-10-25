@@ -6,6 +6,7 @@ including dynamic services.yaml generation for the Home Assistant UI.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -1286,8 +1287,14 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 ", clearing existing stats" if clear_existing else "",
             )
 
-            # Run import in background task
-            hass.async_create_task(
+            # Run import in a background task tied to the entry (cancelled on unload)
+            import_entry = hass.config_entries.async_get_entry(entry_id)
+            create_task = (
+                partial(import_entry.async_create_background_task, hass)
+                if import_entry
+                else hass.async_create_background_task
+            )
+            create_task(
                 async_import_energy_history(
                     hass=hass,
                     api=api,
@@ -1298,7 +1305,8 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                     home_id=intuis_home.id,
                     granularity=granularity,
                     clear_existing=clear_existing,
-                )
+                ),
+                name=f"intuis_connect history import {entry_id}",
             )
             import_count += 1
 

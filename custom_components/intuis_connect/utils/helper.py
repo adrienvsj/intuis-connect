@@ -2,19 +2,57 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Awaitable, Callable
+from functools import wraps
+from typing import Any, Concatenate
 
 import aiohttp
 from aiohttp import ClientSession
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from ..entity.intuis_entity import IntuisDataUpdateCoordinator
 from ..entity.intuis_room import IntuisRoom
-from ..intuis_api.api import CannotConnect, IntuisAPI, InvalidAuth
+from ..intuis_api.api import (
+    APIError,
+    CannotConnect,
+    IntuisAPI,
+    InvalidAuth,
+    RateLimitError,
+)
 from ..utils.const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def api_command[E: Any, **P, R](
+    func: Callable[Concatenate[E, P], Awaitable[R]],
+) -> Callable[Concatenate[E, P], Awaitable[R]]:
+    """Decorate an entity action so Intuis API errors reach the user as HA errors.
+
+    A refused token also starts the re-authentication flow.
+    """
+
+    @wraps(func)
+    async def wrapper(self: E, *args: P.args, **kwargs: P.kwargs) -> R:
+        try:
+            return await func(self, *args, **kwargs)
+        except InvalidAuth as err:
+            entry = getattr(self.coordinator, "config_entry", None)
+            if entry is not None:
+                entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="auth_failed"
+            ) from err
+        except (APIError, CannotConnect, RateLimitError) as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="api_error",
+                translation_placeholders={"error": str(err)},
+            ) from err
+
+    return wrapper
 
 
 async def async_validate_api(
@@ -31,7 +69,8 @@ async def async_validate_api(
         homes = await api.async_login(username, password)
         return homes, api
     except (CannotConnect, InvalidAuth) as e:
-        _LOGGER.error("API validation failed: %s", e)
+        # Shown to the user by the config flow; a wrong password is not an error
+        _LOGGER.debug("API validation failed: %s", e)
         raise
     except aiohttp.ClientError as e:
         _LOGGER.exception("Unknown error during API validation")

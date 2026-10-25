@@ -200,7 +200,8 @@
     },
     "abort": {
       "reauth_successful": "Reconnexion réussie.",
-      "all_homes_configured": "Toutes les maisons de ce compte sont déjà configurées."
+      "all_homes_configured": "Toutes les maisons de ce compte sont déjà configurées.",
+      "already_configured": "Ce compte est déjà configuré."
     }
   },
   "options": {
@@ -287,6 +288,14 @@
         "fixed": "Prix fixe (€/kWh)",
         "entity": "Entité Home Assistant (prix dynamique)"
       }
+    }
+  },
+  "exceptions": {
+    "api_error": {
+      "message": "La requête au cloud Intuis a échoué : {error}"
+    },
+    "auth_failed": {
+      "message": "Le cloud Intuis a refusé les identifiants enregistrés. Reconnectez l'intégration."
     }
   }
 }

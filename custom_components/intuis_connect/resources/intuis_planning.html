@@ -857,7 +857,10 @@
     for (const zone of currentSchedule.zones) {
       const color = COLORS[zone.id % COLORS.length];
       const span = document.createElement('span');
-      span.innerHTML = `<i style="background:${color}"></i> ${zone.name}`;
+      // Zone names come from the Intuis cloud: insert them as text, never as HTML
+      const swatch = document.createElement('i');
+      swatch.style.background = color;
+      span.append(swatch, ` ${zone.name}`);
       legend.appendChild(span);
     }
     
@@ -1003,7 +1006,10 @@
       box.style.setProperty('--zone-bg', hex2rgba(color, 0.15));
       
       const header = document.createElement('h4');
-      header.innerHTML = `<span class="zonecolor" style="background:${color}"></span>${zone.name}`;
+      const zoneColor = document.createElement('span');
+      zoneColor.className = 'zonecolor';
+      zoneColor.style.background = color;
+      header.append(zoneColor, zone.name);
       box.appendChild(header);
       
       // Room temperatures

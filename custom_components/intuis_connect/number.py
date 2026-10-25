@@ -19,10 +19,14 @@ from .entity.intuis_schedule import (
     IntuisThermSchedule,
     IntuisThermZone,
 )
-from .intuis_api.api import APIError, CannotConnect, IntuisAPI, RateLimitError
+from .intuis_api.api import IntuisAPI
 from .utils.const import DOMAIN
+from .utils.helper import api_command
 
 _LOGGER = logging.getLogger(__name__)
+
+# Commands go to a rate-limited cloud API: send them one at a time
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
@@ -86,7 +90,7 @@ async def async_setup_entry(
     # Initial entity setup
     entities = _build_entities()
     _LOGGER.info("Setting up %d zone temperature number entities", len(entities))
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities)
 
     # Store reference for dynamic updates
     data["number_entity_ids"] = current_entity_ids
@@ -160,7 +164,7 @@ async def async_setup_entry(
             if new_entities:
                 add_entities_callback = data.get("number_async_add_entities")
                 if add_entities_callback:
-                    add_entities_callback(new_entities, update_before_add=True)
+                    add_entities_callback(new_entities)
 
         # Update stored IDs
         data["number_entity_ids"] = expected_ids
@@ -276,6 +280,7 @@ class IntuisZoneTemperatureNumber(CoordinatorEntity[IntuisDataUpdateCoordinator]
 
         return self._cached_temp
 
+    @api_command
     async def async_set_native_value(self, value: float) -> None:
         """Update the zone temperature."""
         intuis_home = self.coordinator.data.get("intuis_home")
@@ -336,29 +341,24 @@ class IntuisZoneTemperatureNumber(CoordinatorEntity[IntuisDataUpdateCoordinator]
             for t in target_schedule.timetables
         ]
 
-        try:
-            await self._api.async_sync_schedule(
-                schedule_id=target_schedule.id,
-                schedule_name=target_schedule.name,
-                schedule_type=target_schedule.type,
-                timetable=timetable,
-                zones=zones_payload,
-                away_temp=target_schedule.away_temp,
-                hg_temp=target_schedule.hg_temp,
-            )
+        await self._api.async_sync_schedule(
+            schedule_id=target_schedule.id,
+            schedule_name=target_schedule.name,
+            schedule_type=target_schedule.type,
+            timetable=timetable,
+            zones=zones_payload,
+            away_temp=target_schedule.away_temp,
+            hg_temp=target_schedule.hg_temp,
+        )
 
-            # Optimistic update
-            self._cached_temp = value
-            self.async_write_ha_state()
+        # Optimistic update
+        self._cached_temp = value
+        self.async_write_ha_state()
 
-            # Refresh coordinator
-            await self.coordinator.async_request_refresh()
+        # Refresh coordinator
+        await self.coordinator.async_request_refresh()
 
-            _LOGGER.info("Zone temperature updated successfully")
-
-        except (APIError, CannotConnect, RateLimitError) as err:
-            _LOGGER.error("Failed to set zone temperature: %s", err)
-            raise
+        _LOGGER.info("Zone temperature updated successfully")
 
     @callback
     def _handle_coordinator_update(self) -> None:

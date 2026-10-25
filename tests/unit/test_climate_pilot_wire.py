@@ -55,7 +55,11 @@ class TestPilotWireState:
 
     def test_no_temperature_dial(self, pilot_entity):
         entity = pilot_entity()
-        assert entity.supported_features == ClimateEntityFeature.PRESET_MODE
+        assert entity.supported_features == (
+            ClimateEntityFeature.PRESET_MODE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
+        )
         assert entity.current_temperature is None
         assert entity.target_temperature is None
         assert entity.preset_modes == PILOT_WIRE_PRESETS

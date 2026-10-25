@@ -163,7 +163,7 @@ intuis_home_config_entities: list[IntuisHomeSensorDefinition] = [
 
 def _get_current_minute_offset() -> int:
     """Calculate current minute offset in the week (0 = Monday 00:00)."""
-    now = datetime.now()
+    now = dt_util.now()
     # Python weekday: Monday = 0, Sunday = 6
     day_of_week = now.weekday()
     minutes_today = now.hour * 60 + now.minute

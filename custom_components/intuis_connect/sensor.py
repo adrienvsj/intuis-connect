@@ -28,6 +28,9 @@ from .utils.helper import get_basic_utils
 
 _LOGGER = logging.getLogger(__name__)
 
+# Coordinator-based: no polling per entity
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up Intuis Connect sensors from a config entry."""
@@ -61,7 +64,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     if intuis_home and intuis_home.schedules:
         entities.append(IntuisScheduleDataSensor(coordinator, home_id, intuis_home))
     
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities)
 
 
 class IntuisSensor(CoordinatorEntity, SensorEntity, IntuisEntity):

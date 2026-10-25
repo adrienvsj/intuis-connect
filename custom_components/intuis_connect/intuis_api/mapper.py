@@ -2,6 +2,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
+import homeassistant.util.dt as dt_util
+
 from ..entity.intuis_module import IntuisModule
 from ..entity.intuis_room import IntuisRoom, IntuisRoomDefinition
 from ..utils.const import DEFAULT_UPDATE_INTERVAL
@@ -37,7 +39,7 @@ def extract_rooms(home: dict[str, Any],
     rooms_raw: list[dict[str, Any]] = home.get("rooms", [])
 
     if now is None:
-        now = datetime.now()
+        now = dt_util.now()
 
     # --- process rooms ---
     data_by_room: dict[str, IntuisRoom] = {}

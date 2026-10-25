@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import homeassistant.util.dt as dt_util
+
 from .entity.intuis_home import IntuisHome
 from .entity.intuis_home_config import IntuisHomeConfig
 from .intuis_api.api import APIError, CannotConnect, IntuisAPI, RateLimitError
@@ -100,7 +102,8 @@ class IntuisData:
 
     async def async_update(self) -> dict[str, Any]:
         """Fetch and process data from the API."""
-        now = datetime.now()
+        # Home Assistant's time zone, not the OS one: the energy reset hour is local
+        now = dt_util.now()
 
         # Get configured reset hour
         options = self._get_options()

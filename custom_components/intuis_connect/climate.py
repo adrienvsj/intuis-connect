@@ -58,9 +58,12 @@ from .utils.const import (
     PRESET_PILOT_WIRE_FROST,
     PRESET_SCHEDULE,
 )
-from .utils.helper import get_basic_utils
+from .utils.helper import api_command, get_basic_utils
 
 _LOGGER = logging.getLogger(__name__)
+
+# Commands go to a rate-limited cloud API: send them one at a time
+PARALLEL_UPDATES = 1
 
 _PRESET_TO_FP = {PRESET_COMFORT: API_FP_COMFORT, PRESET_ECO: API_FP_ECO}
 
@@ -79,7 +82,10 @@ class IntuisConnectClimate(
     _attr_hvac_modes = [HVACMode.AUTO, HVACMode.HEAT, HVACMode.OFF]
     _attr_preset_modes = [PRESET_AWAY, PRESET_BOOST, PRESET_SCHEDULE, PRESET_FROST_PROTECT]
     _attr_supported_features = (
-            ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
+            ClimateEntityFeature.TARGET_TEMPERATURE
+            | ClimateEntityFeature.PRESET_MODE
+            | ClimateEntityFeature.TURN_ON
+            | ClimateEntityFeature.TURN_OFF
     )
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_has_entity_name = True
@@ -297,6 +303,15 @@ class IntuisConnectClimate(
         # Otherwise, use the room's heating status
         return HVACAction.HEATING if room.heating else HVACAction.IDLE
 
+    async def async_turn_on(self) -> None:
+        """Turn on: follow the schedule."""
+        await self.async_set_hvac_mode(HVACMode.AUTO)
+
+    async def async_turn_off(self) -> None:
+        """Turn off."""
+        await self.async_set_hvac_mode(HVACMode.OFF)
+
+    @api_command
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         temp = kwargs.get("temperature")
@@ -347,6 +362,7 @@ class IntuisConnectClimate(
             await save_overrides()
         self._schedule_end_refresh(end_ts)
 
+    @api_command
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new hvac mode."""
         room_id = self._room.id
@@ -382,6 +398,7 @@ class IntuisConnectClimate(
         self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
+    @api_command
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
         room_id = self._room.id
@@ -456,7 +473,9 @@ class IntuisPilotWireClimate(IntuisConnectClimate):
     """Pilot-wire radiator: driven by orders (comfort/eco/frost) and read live from the room."""
 
     _attr_preset_modes = PILOT_WIRE_PRESETS
-    _attr_supported_features = ClimateEntityFeature.PRESET_MODE
+    _attr_supported_features = (
+        ClimateEntityFeature.PRESET_MODE | ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
+    )
     _attr_translation_key = "intuis_room"
 
     @property
@@ -500,6 +519,7 @@ class IntuisPilotWireClimate(IntuisConnectClimate):
             "setpoint_source": "schedule" if self.hvac_mode == HVACMode.AUTO else "manual",
         }
 
+    @api_command
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """HEAT means a manual Comfort order; other modes behave as for temperature rooms."""
         if hvac_mode == HVACMode.HEAT:
@@ -508,6 +528,7 @@ class IntuisPilotWireClimate(IntuisConnectClimate):
         else:
             await super().async_set_hvac_mode(hvac_mode)
 
+    @api_command
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Send the pilot-wire order matching the preset."""
         room_id = self._room.id
@@ -533,4 +554,4 @@ async def async_setup_entry(
             else IntuisConnectClimate
         )
         entities.append(climate_cls(coordinator, home_id, room, api, entry.entry_id))
-    async_add_entities(entities, update_before_add=True)
+    async_add_entities(entities)

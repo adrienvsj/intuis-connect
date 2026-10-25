@@ -4,5 +4,6 @@
   "zip_release": false,
   "hide_default_branch": true,
   "country": "FR",
-  "render_readme": true
+  "render_readme": true,
+  "homeassistant": "2026.10.0"
 }

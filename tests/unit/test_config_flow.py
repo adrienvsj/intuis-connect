@@ -19,7 +19,7 @@ HOMES = [{"id": "home_1", "name": "Maison", "timezone": "Europe/Paris"}]
 
 
 @pytest.fixture(autouse=True)
-def _custom_integrations(enable_custom_integrations):
+def _custom_integrations(recorder_mock, enable_custom_integrations):
     """Let the flow manager load the integration from custom_components."""
 
 

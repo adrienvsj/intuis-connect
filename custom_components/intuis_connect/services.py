@@ -813,10 +813,6 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 }
                 zones_payload.append(zone_data)
 
-        # Use override temps from call if provided, otherwise use schedule's current values
-        final_away_temp = override_away_temp if override_away_temp is not None else target_schedule.away_temp
-        final_hg_temp = override_hg_temp if override_hg_temp is not None else target_schedule.hg_temp
-
         try:
             await api.async_sync_schedule(
                 schedule_id=target_schedule.id,
@@ -824,8 +820,8 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 schedule_type=target_schedule.type,
                 timetable=timetable,
                 zones=zones_payload,
-                away_temp=final_away_temp,
-                hg_temp=final_hg_temp,
+                away_temp=target_schedule.away_temp,
+                hg_temp=target_schedule.hg_temp,
             )
 
             # Update local timetable state
@@ -833,11 +829,6 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 IntuisTimetable(zone_id=t["zone_id"], m_offset=t["m_offset"])
                 for t in timetable
             ]
-            # Update local away/hg temps if overridden
-            if override_away_temp is not None:
-                target_schedule.away_temp = final_away_temp
-            if override_hg_temp is not None:
-                target_schedule.hg_temp = final_hg_temp
 
             # Refresh coordinator
             if coordinator:

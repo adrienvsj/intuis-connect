@@ -88,13 +88,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Intuis Connect."""
 
     VERSION = 3
-    _reauth_entry: config_entries.ConfigEntry | None = None
-    _username: str | None = None
-    _home_id: str | None = None
-    _home_name: str | None = None
-    _homes: list[dict[str, Any]] = []
-    _refresh_token: str | None = None
-    _override_options: dict[str, Any] = {}
+
+    def __init__(self) -> None:
+        """Initialize per-flow state (class attributes would be shared between flows)."""
+        self._reauth_entry: config_entries.ConfigEntry | None = None
+        self._username: str | None = None
+        self._home_id: str | None = None
+        self._home_name: str | None = None
+        self._homes: list[dict[str, Any]] = []
+        self._refresh_token: str | None = None
+        self._override_options: dict[str, Any] = {}
 
     async def async_step_user(
             self, user_input: dict[str, Any] | None = None
@@ -391,10 +394,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 options=self._override_options,
             )
 
-        price_mode_options = [
-            {"value": v} for v in ENERGY_PRICE_MODE_OPTIONS
-        ]
-
         options_schema = vol.Schema(
             {
                 vol.Optional(
@@ -405,18 +404,16 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_ENERGY_PRICE_MODE,
                     default=DEFAULT_ENERGY_PRICE_MODE,
                 ): SelectSelector(
-                    
+                    SelectSelectorConfig(options=ENERGY_PRICE_MODE_OPTIONS, mode=SelectSelectorMode.DROPDOWN, translation_key="energy_price_mode")
                 ),
                 vol.Optional(
                     CONF_ENERGY_FIXED_PRICE,
                     default=DEFAULT_ENERGY_FIXED_PRICE,
                 ): NumberSelector(
-                    NumberSelectorConfig(min=0.0, max=5.0, step=0.0001, mode=NumberSelectorMode.BOX, unit_of_measurement="/kWh")
+                    NumberSelectorConfig(min=0.0, max=5.0, step="any", mode=NumberSelectorMode.BOX, unit_of_measurement="/kWh")
                 ),
-                vol.Optional(
-                    CONF_ENERGY_PRICE_ENTITY,
-                    default=DEFAULT_ENERGY_PRICE_ENTITY,
-                ): EntitySelector(
+                # No default: an empty string is not a valid entity ID.
+                vol.Optional(CONF_ENERGY_PRICE_ENTITY): EntitySelector(
                     EntitySelectorConfig(domain=["sensor"])
                 ),
             }
@@ -769,11 +766,7 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
             }
             return self.async_create_entry(title="", data=all_options)
 
-        price_mode_options = [
-            {"value": v} for v in ENERGY_PRICE_MODE_OPTIONS
-        ]
-
-        current_price_entity = self._entry.options.get(CONF_ENERGY_PRICE_ENTITY, DEFAULT_ENERGY_PRICE_ENTITY) or ""
+        current_price_entity = self._entry.options.get(CONF_ENERGY_PRICE_ENTITY, DEFAULT_ENERGY_PRICE_ENTITY) or None
 
         options_schema = vol.Schema(
             {
@@ -785,17 +778,19 @@ class IntuisOptionsFlow(config_entries.OptionsFlow):
                     CONF_ENERGY_PRICE_MODE,
                     default=self._entry.options.get(CONF_ENERGY_PRICE_MODE, DEFAULT_ENERGY_PRICE_MODE),
                 ): SelectSelector(
-                    SelectSelectorConfig(options=price_mode_options, mode=SelectSelectorMode.DROPDOWN, translation_key="energy_price_mode")
+                    SelectSelectorConfig(options=ENERGY_PRICE_MODE_OPTIONS, mode=SelectSelectorMode.DROPDOWN, translation_key="energy_price_mode")
                 ),
                 vol.Optional(
                     CONF_ENERGY_FIXED_PRICE,
                     default=self._entry.options.get(CONF_ENERGY_FIXED_PRICE, DEFAULT_ENERGY_FIXED_PRICE),
                 ): NumberSelector(
-                    NumberSelectorConfig(min=0.0, max=5.0, step=0.0001, mode=NumberSelectorMode.BOX, unit_of_measurement="/kWh")
+                    NumberSelectorConfig(min=0.0, max=5.0, step="any", mode=NumberSelectorMode.BOX, unit_of_measurement="/kWh")
                 ),
+                # Suggested value instead of default, so the field can be cleared
+                # and an empty string never reaches the entity validator.
                 vol.Optional(
                     CONF_ENERGY_PRICE_ENTITY,
-                    default=current_price_entity,
+                    description={"suggested_value": current_price_entity},
                 ): EntitySelector(
                     EntitySelectorConfig(domain=["sensor"])
                 ),

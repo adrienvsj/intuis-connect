@@ -248,13 +248,6 @@ def pytest_configure(config):
     )
 
 
-@pytest.fixture
-def event_loop_policy():
-    """Use default event loop policy."""
-    import asyncio
-    return asyncio.DefaultEventLoopPolicy()
-
-
 # ---------------------------------------------------------------------------
 # Mock Home Assistant (for climate tests)
 # ---------------------------------------------------------------------------

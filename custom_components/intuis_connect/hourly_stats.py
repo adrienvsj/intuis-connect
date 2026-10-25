@@ -3,8 +3,13 @@
 Exact replication of the Node-RED "Prépare les imports (cumul kWh + dédup)" logic.
 
 Architecture:
-- Fetches hourly energy from Intuis API: J-1 00:00 local -> now (25-48 h)
-- Computes cumulative sums from persistent midnight_bases (never reads HA DB)
+- Fetches hourly energy from Intuis API: J-1 00:00 local -> now (25-48 h),
+  or from the day after the last imported hour when HA was down longer
+- Only imports complete hours, IMPORT_SETTLE_MINUTES after they ended, so a
+  run never writes an hour the recorder may be compiling at the same moment
+- Chains cumulative sums from the recorder's own sum just before the window,
+  so an entity rename or a lost/rolled-back storage file cannot restart the
+  counter at 0; persistent midnight_bases are only a fallback
 - Imports via recorder.async_import_statistics (source="recorder", idempotent)
 - Clears the range before importing -> overwrites any recorder auto-stats
 - midnight_bases[statistic_id][day_key] = cumulative sum at that day's 00:00 local
@@ -16,9 +21,9 @@ otherwise the recorder generates competing statistics and the Energy
 Dashboard shows spikes.  hourly_stats is the sole writer of statistics
 for these entities.
 
-Cumulative-sum algorithm (same as Node-RED):
-  1. Priority: hour-to-hour continuity  ->  prevSum + hourly_kwh
-  2. Fallback: midnight_bases[statistic_id][day_key] + cumul since midnight
+Cumulative-sum algorithm:
+  sum(hour) = base + kWh since the window start, where base is the recorder
+  sum before the window (fallback: midnight_bases, then the last anchor).
   state = sum = cumulative total (matches Node-RED convention)
 """
 
@@ -33,6 +38,8 @@ from zoneinfo import ZoneInfo
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import (
     async_import_statistics,
+    get_last_statistics,
+    statistics_during_period,
 )
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.const import UnitOfEnergy
@@ -55,6 +62,23 @@ STORAGE_KEY_PREFIX = "intuis_connect.hourly_stats_v3_"
 HOUR_MS = 3_600_000   # 1 h in milliseconds
 HOUR_S = 3600         # 1 h in seconds
 MIDNIGHT_BASES_MAX_DAYS = 270   # prune entries older than this
+# An hour is imported once it ended this long ago (the recorder compiles the
+# previous hour a few seconds after the top of the hour)
+IMPORT_SETTLE_MINUTES = 15
+# After a long downtime, re-fetch at most this many days (older gaps need
+# the import_energy_history service)
+MAX_CATCHUP_DAYS = 7
+# How far back to look for the recorder sum preceding the import window
+# when the hours just before it are missing
+BASE_LOOKBACK_DAYS = 400
+
+
+def _row_start_ts(row: dict[str, Any]) -> float | None:
+    """Return a statistics row start as a UTC timestamp (float or datetime rows)."""
+    start = row.get("start")
+    if start is None:
+        return None
+    return start.timestamp() if hasattr(start, "timestamp") else float(start)
 
 
 class HourlyStatsUpdater:
@@ -214,6 +238,74 @@ class HourlyStatsUpdater:
         dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=self._timezone)
         return dt.hour
 
+    @staticmethod
+    def _complete_hours(
+        hourly_data: list[tuple[int, float]] | None, import_end_ms: int
+    ) -> list[tuple[int, float]]:
+        """Keep complete hours only, one point per hour, in time order.
+
+        Duplicate points for the same hour keep the largest value: summing them
+        would double count overlapping API segments.
+        """
+        by_hour: dict[int, tuple[int, float]] = {}
+        for timestamp_sec, wh in hourly_data or []:
+            start_ms = HourlyStatsUpdater._snap_to_hour_ms(timestamp_sec)
+            if start_ms + HOUR_MS > import_end_ms:
+                continue
+            previous = by_hour.get(start_ms)
+            if previous is None or (wh or 0) > (previous[1] or 0):
+                by_hour[start_ms] = (timestamp_sec, wh)
+        return [by_hour[k] for k in sorted(by_hour)]
+
+    async def _async_window_and_base(
+        self, statistic_id: str, default_start: datetime
+    ) -> tuple[datetime, float | None]:
+        """Return the import window start and the recorder sum just before it.
+
+        The window starts at J-1 00:00, or at the local midnight following the
+        last imported hour when that is older (capped to MAX_CATCHUP_DAYS).
+        The base is None when the recorder has no row before the window.
+        """
+        instance = get_instance(self._hass)
+        try:
+            last = await instance.async_add_executor_job(
+                get_last_statistics, self._hass, 1, statistic_id, False, {"sum"}
+            )
+            rows = last.get(statistic_id) or []
+            window_start = default_start
+            last_ts = _row_start_ts(rows[0]) if rows else None
+            if last_ts is not None:
+                resume = datetime.fromtimestamp(last_ts + HOUR_S, tz=self._timezone)
+                resume_midnight = resume.replace(hour=0, minute=0, second=0, microsecond=0)
+                earliest = default_start - timedelta(days=MAX_CATCHUP_DAYS - 1)
+                if resume_midnight < window_start:
+                    window_start = max(resume_midnight, earliest)
+                    _LOGGER.info(
+                        "%s: last imported hour is old, catching up from %s",
+                        statistic_id, window_start.isoformat(),
+                    )
+
+            # Usually the previous hour exists: look back 2 days first, and
+            # only scan the long range when there is a gap
+            for lookback_days in (2, BASE_LOOKBACK_DAYS):
+                before = await instance.async_add_executor_job(
+                    statistics_during_period,
+                    self._hass,
+                    window_start - timedelta(days=lookback_days),
+                    window_start,
+                    {statistic_id},
+                    "hour",
+                    None,
+                    {"sum"},
+                )
+                before_rows = before.get(statistic_id) or []
+                if before_rows and before_rows[-1].get("sum") is not None:
+                    return window_start, float(before_rows[-1]["sum"])
+            return window_start, None
+        except Exception as err:  # recorder unavailable: fall back to storage
+            _LOGGER.warning("%s: could not read recorder sums: %s", statistic_id, err)
+            return default_start, None
+
     # -- Main update -------------------------------------------------------
 
     async def async_update(self) -> int:
@@ -239,32 +331,44 @@ class HourlyStatsUpdater:
                 _LOGGER.info("midnight_bases is empty — auto-initializing from existing statistics")
                 await self.async_initialize_base_from_statistics()
 
-            # Time window: J-1 00:00 local -> now
+            # Time window: J-1 00:00 local -> now (earlier after a long downtime)
             now_local = datetime.now(self._timezone)
             today_midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
             yesterday_midnight = today_midnight - timedelta(days=1)
-
-            date_begin = int(yesterday_midnight.timestamp())
             date_end = int(now_local.timestamp())
+            import_end_ms = int((now_local.timestamp() - IMPORT_SETTLE_MINUTES * 60) * 1000)
 
             _LOGGER.info("Fetching hourly data %s -> %s",
                           yesterday_midnight.isoformat(), now_local.isoformat())
+
+            # Let imports queued by a previous run or a history import reach the
+            # database before reading the sums this run chains from.
+            await get_instance(self._hass).async_block_till_done()
 
             total_imported = 0
             room_hourly_data: dict[str, list[tuple[int, float]]] = {}
             try:
                 for room_id, room in self._intuis_home.rooms.items():
                     try:
+                        statistic_id = self._get_statistic_id(room_id)
+                        if not statistic_id:
+                            continue
+                        window_start, base_sum = await self._async_window_and_base(
+                            statistic_id, yesterday_midnight
+                        )
                         hourly_data = await self._api.async_get_room_energy_hourly(
                             room_id=room_id,
-                            date_begin=date_begin,
+                            date_begin=int(window_start.timestamp()),
                             date_end=date_end,
                         )
+                        hourly_data = self._complete_hours(hourly_data, import_end_ms)
                         if not hourly_data:
-                            _LOGGER.debug("No hourly data for room %s", room_id)
+                            _LOGGER.debug("No complete hourly data for room %s", room_id)
                             continue
                         room_hourly_data[room_id] = hourly_data
-                        total_imported += await self._process_room(room_id, hourly_data)
+                        total_imported += await self._process_room(
+                            room_id, hourly_data, base_sum=base_sum
+                        )
                     except Exception as room_err:
                         _LOGGER.warning("Error for room %s: %s", room_id, room_err)
 
@@ -296,23 +400,23 @@ class HourlyStatsUpdater:
     # -- Process one room (Node-RED "Prepare les imports" logic) -----------
 
     async def _process_room(
-        self, room_id: str, hourly_data: list[tuple[int, float]]
+        self,
+        room_id: str,
+        hourly_data: list[tuple[int, float]],
+        base_sum: float | None = None,
     ) -> int:
         """Process hourly data for a single room.
 
-        Replicates Node-RED exactly:
-          - midnight_bases[sid][day_key] from persistent storage (NEVER from HA DB)
-          - Priority: hour-to-hour continuity (prevSum + kwh)
-          - Fallback: midnight_bases[sid][day_key] + cumul since midnight
+          - The first day of the window starts from base_sum, the recorder sum
+            just before the window; without it, from midnight_bases, then the
+            last anchor, then 0
+          - Later days chain from the sum reached at the end of the previous day
           - state = sum = cumulative total (Node-RED convention)
           - change is auto-calculated by HA as sum[n]-sum[n-1]
           - Always rewrite all hours (idempotent)
 
-        midnight_bases is updated for every midnight boundary encountered.
-        With the J-1→now window, at most 2 midnights are crossed per run
-        (J-1 00:00 and today 00:00), but the fallback dict is shared with
-        history_import so partial reimports (any N-day window) find the
-        correct anchor for any day without a DB query.
+        midnight_bases is updated for every midnight boundary encountered; the
+        dict is shared with history_import and sensor.py.
         """
         if not hourly_data:
             return 0
@@ -342,11 +446,13 @@ class HourlyStatsUpdater:
             prev_start,
         )
 
-        # --- Build stats (exact Node-RED algorithm) ---
+        # --- Build stats ---
         run_kwh_from_midnight = 0.0
         last_day_key = None
         day_base_cache: dict[str, float] = {}
         stats = []
+        # Sum reached by the previous point of this run (None before the first)
+        loop_prev_sum: float | None = None
 
         for timestamp_sec, wh in hourly_data:
             # Validate
@@ -361,48 +467,39 @@ class HourlyStatsUpdater:
 
             # Local day management
             day_key = self._local_day_key(start_ms)
-            hour = self._local_hour(start_ms)
 
             if last_day_key is None or day_key != last_day_key:
                 run_kwh_from_midnight = 0.0
                 last_day_key = day_key
 
             if day_key not in day_base_cache:
-                # Priority 1: hour-to-hour continuity (prev entry was exactly 1h before)
-                if (hour == 0
-                        and prev_sum is not None
-                        and prev_start is not None
-                        and (start_ms - prev_start) == HOUR_MS):
-                    day_base_cache[day_key] = prev_sum
-                    # Capture this midnight in persistent store
-                    mb[day_key] = round(prev_sum, 3)
+                if loop_prev_sum is not None:
+                    # Crossed midnight in this run: the day starts where the
+                    # previous one ended (missing hours count as 0 kWh)
+                    day_base = loop_prev_sum
+                elif base_sum is not None:
+                    # First day: continue from what the recorder already holds
+                    day_base = base_sum
                 else:
-                    # Fallback: persistent midnight_bases for this day
+                    # No recorder history: persistent midnight base, then anchor
                     fallback = float(mb.get(day_key, 0.0))
                     if fallback > 0:
-                        day_base_cache[day_key] = fallback
+                        day_base = fallback
                     elif prev_sum is not None and prev_sum > 0:
-                        day_base_cache[day_key] = prev_sum
+                        day_base = prev_sum
                     else:
-                        day_base_cache[day_key] = 0.0
-
-                    # Persist fallback as the authoritative midnight base for this day
-                    # so future partial reimports on this day window start correctly
-                    if day_base_cache[day_key] > 0 and day_key not in mb:
-                        mb[day_key] = round(day_base_cache[day_key], 3)
+                        day_base = 0.0
+                day_base_cache[day_key] = day_base
+                # The window starts at a local midnight, so every day base is
+                # that day's midnight sum
+                if day_base > 0:
+                    mb[day_key] = round(day_base, 3)
 
             # Hourly consumption Wh -> kWh
             kwh = wh / 1000.0
             run_kwh_from_midnight += kwh
 
-            # Cumulative sum: priority = hour-to-hour continuity
-            if (prev_sum is not None
-                    and prev_start is not None
-                    and (start_ms - prev_start) == HOUR_MS):
-                cumul_sum = round(prev_sum + kwh, 3)
-            else:
-                # Fallback: day base + cumul since midnight
-                cumul_sum = round(day_base_cache[day_key] + run_kwh_from_midnight, 3)
+            cumul_sum = round(day_base_cache[day_key] + run_kwh_from_midnight, 3)
 
             stats.append(StatisticData(
                 start=start_dt,
@@ -411,6 +508,7 @@ class HourlyStatsUpdater:
             ))
 
             # Advance anchor for next point
+            loop_prev_sum = cumul_sum
             prev_sum = cumul_sum
             prev_start = start_ms
 
@@ -645,7 +743,10 @@ class HourlyStatsUpdater:
             _LOGGER.warning("Hourly stats updater already running")
             return
         self._stop_event.clear()
-        self._update_task = asyncio.create_task(self._update_loop())
+        # Tracked by Home Assistant, so it is cancelled cleanly at shutdown
+        self._update_task = self._hass.async_create_background_task(
+            self._update_loop(), name=f"intuis_connect hourly stats {self._entry_id}"
+        )
         _LOGGER.info("Hourly stats updater started (interval: %d min)", self._update_interval)
 
     async def async_stop(self) -> None:

@@ -929,6 +929,8 @@ async def async_import_energy_history(
             for _eid, _edata in hass.data.get(DOMAIN, {}).items():
                 if isinstance(_edata, dict):
                     updater = _edata.get("hourly_stats_updater")
+                    if getattr(updater, "_home_id", None) != effective_home_id:
+                        continue  # another home's updater
                     if updater and hasattr(updater, "async_set_bases_from_import"):
                         try:
                             await updater.async_set_bases_from_import(midnight_sums)

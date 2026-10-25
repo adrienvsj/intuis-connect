@@ -317,7 +317,7 @@ class IntuisEnergySensor(IntuisSensor):
         # We wait for hourly_stats_ready flag (set after first LTS write) to avoid
         # recording a high current value that creates a spike relative to the last
         # LTS point (which can be 6h+ behind due to API data lag).
-        if not self.hass.data.get(DOMAIN, {}).get("hourly_stats_ready", False):
+        if self._home_id not in self.hass.data.get(DOMAIN, {}).get("hourly_stats_ready", set()):
             return None
         base = self._get_base_kwh()
         if base is None:

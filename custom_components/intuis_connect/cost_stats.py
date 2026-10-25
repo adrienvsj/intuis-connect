@@ -293,7 +293,8 @@ class CostStatsUpdater:
                 # Never let the entity state decrease — monotonically non-decreasing
                 cost_base[sid] = max(new_val, old_val)
 
-        self._hass.data[DOMAIN]["cost_base"] = cost_base
+        # Merge: other homes' updaters publish their own sensors here too
+        self._hass.data[DOMAIN].setdefault("cost_base", {}).update(cost_base)
 
     async def _init_midnight_bases_from_lts(self) -> None:
         """Populate midnight_bases from existing cost LTS data.

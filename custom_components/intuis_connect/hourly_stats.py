@@ -201,7 +201,8 @@ class HourlyStatsUpdater:
                 # Fallback: last known anchor sum until today midnight is captured
                 sensor_base[sid] = float(anchors[sid].get("prev_sum", 0))
 
-        self._hass.data[DOMAIN]["sensor_base"] = sensor_base
+        # Merge: other homes' updaters publish their own sensors here too
+        self._hass.data[DOMAIN].setdefault("sensor_base", {}).update(sensor_base)
 
     # -- Entity lookup -----------------------------------------------------
 
@@ -380,7 +381,7 @@ class HourlyStatsUpdater:
 
                 _LOGGER.info("Imported %d hourly statistics", total_imported)
                 # Signal sensors that LTS is fresh — they can now publish their state.
-                self._hass.data[DOMAIN]["hourly_stats_ready"] = True
+                self._hass.data[DOMAIN].setdefault("hourly_stats_ready", set()).add(self._home_id)
 
                 # Update cost statistics if a cost updater is configured
                 if self.cost_updater is not None and room_hourly_data:

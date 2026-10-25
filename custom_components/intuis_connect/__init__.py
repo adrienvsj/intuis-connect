@@ -18,6 +18,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.loader import async_get_integration
+from homeassistant.util import slugify
 
 from .cost_stats import CostStatsUpdater
 from .entity.intuis_entity import IntuisDataUpdateCoordinator
@@ -97,99 +98,45 @@ async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def _async_migrate_cost_entity_ids(hass, entry, intuis_home) -> None:
-    """Migrate old energy_cost/_2 entities to the new 'cost' suffix.
+@callback
+def _async_migrate_cost_entity_ids(hass: HomeAssistant, intuis_home) -> None:
+    """Move cost sensors from the old "_energy_cost" unique_id to "_cost".
 
-    Previous versions named cost sensors 'sensor.X_energy_cost' which
-    conflicts with the virtual entity HA's Energy Dashboard auto-creates.
-    New name: 'sensor.X_cost' (unique_id suffix: 'cost').
-
-    This migration:
-    1. Looks for entities with old unique_id suffix '_energy_cost' or '_energy_cost_2'
-    2. Renames them in the entity registry to the new entity_id 'sensor.X_cost'
-    3. Renames the StatisticsMeta row to the new statistic_id
-    4. Removes any HA-generated virtual 'sensor.X_energy_cost' (state=unavailable)
+    Older versions named cost sensors "sensor.X_energy_cost", which clashes
+    with the entity the Energy dashboard creates for an energy sensor. The
+    unique_id always moves to the new suffix. The entity_id is renamed to
+    "sensor.X_cost" only if it still has its default value and the target is
+    free: a user-chosen entity_id is kept, and entries of other integrations
+    are never removed. The recorder renames the statistics with the entity.
     """
-    from homeassistant.components.recorder import get_instance
-    from homeassistant.components.recorder.db_schema import StatisticsMeta
-    from homeassistant.helpers import entity_registry as er
-    from homeassistant.helpers.recorder import session_scope
-    from sqlalchemy import select, update
-
     ent_reg = er.async_get(hass)
-    instance = get_instance(hass)
-
-    rooms = intuis_home.rooms if intuis_home else {}
     migrated = 0
 
-    for room_id in rooms:
-        room = rooms[room_id]
-        room_slug = room.name.lower().replace(" ", "_").replace("-", "_")
-
-        # New target entity_id and unique_id
-        new_entity_id = f"sensor.{room_slug}_cost"
+    for room_id, room in (intuis_home.rooms or {}).items():
         new_unique_id = f"intuis_{intuis_home.id}_{room_id}_cost"
-
-        # Skip if already migrated
         if ent_reg.async_get_entity_id("sensor", DOMAIN, new_unique_id):
-            continue
+            continue  # already migrated
 
-        # Find old entity: try _energy_cost then _energy_cost_2
         old_unique_id = f"intuis_{intuis_home.id}_{room_id}_energy_cost"
-        old_entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, old_unique_id)
-        if not old_entity_id:
-            # Check _2 variant (old unique_id may have been duplicated)
-            old_entity_id = ent_reg.async_get_entity_id("sensor", DOMAIN, old_unique_id + "_2")
-
+        old_entity_id = ent_reg.async_get_entity_id(
+            "sensor", DOMAIN, old_unique_id
+        ) or ent_reg.async_get_entity_id("sensor", DOMAIN, f"{old_unique_id}_2")
         if not old_entity_id:
             continue
 
-        # Remove any blocking HA-generated virtual entity at our target entity_id
-        blocking_entry = ent_reg.async_get(new_entity_id)
-        if blocking_entry and blocking_entry.platform != DOMAIN:
-            try:
-                ent_reg.async_remove(new_entity_id)
-                _LOGGER.info("Migration: removed HA-generated virtual entity '%s'", new_entity_id)
-            except Exception as e:
-                _LOGGER.warning("Migration: could not remove blocking entity '%s': %s", new_entity_id, e)
+        room_slug = slugify(room.name)
+        changes: dict[str, str] = {"new_unique_id": new_unique_id}
+        new_entity_id = f"sensor.{room_slug}_cost"
+        is_default_id = old_entity_id in (
+            f"sensor.{room_slug}_energy_cost",
+            f"sensor.{room_slug}_energy_cost_2",
+        )
+        if is_default_id and ent_reg.async_get(new_entity_id) is None and hass.states.get(new_entity_id) is None:
+            changes["new_entity_id"] = new_entity_id
 
-        # Rename StatisticsMeta old → new
-        def _rename_stats(old_sid: str, new_sid: str) -> bool:
-            with session_scope(session=instance.get_session()) as session:
-                meta = session.execute(
-                    select(StatisticsMeta).where(StatisticsMeta.statistic_id == old_sid)
-                ).scalar_one_or_none()
-                if meta:
-                    session.execute(
-                        update(StatisticsMeta)
-                        .where(StatisticsMeta.statistic_id == old_sid)
-                        .values(statistic_id=new_sid)
-                    )
-                    return True
-                return False
-
-        try:
-            renamed = await instance.async_add_executor_job(
-                _rename_stats, old_entity_id, new_entity_id
-            )
-            if renamed:
-                _LOGGER.info("Migration: renamed StatisticsMeta '%s' → '%s'",
-                             old_entity_id, new_entity_id)
-        except Exception as e:
-            _LOGGER.warning("Migration: could not rename StatisticsMeta '%s': %s", old_entity_id, e)
-
-        # Update entity registry: new unique_id + new entity_id
-        try:
-            ent_reg.async_update_entity(
-                old_entity_id,
-                new_entity_id=new_entity_id,
-                new_unique_id=new_unique_id,
-            )
-            _LOGGER.info("Migration: entity '%s' (unique_id=%s) → '%s' (unique_id=%s)",
-                         old_entity_id, old_unique_id, new_entity_id, new_unique_id)
-            migrated += 1
-        except Exception as e:
-            _LOGGER.warning("Migration: could not rename entity '%s': %s", old_entity_id, e)
+        ent_reg.async_update_entity(old_entity_id, **changes)
+        _LOGGER.info("Migration: cost sensor %s moved to %s", old_entity_id, changes)
+        migrated += 1
 
     if migrated:
         _LOGGER.info("Migration: migrated %d cost entities to 'cost' suffix", migrated)
@@ -416,7 +363,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # claim the clean entity_id on the next reload.
     cost_enabled = entry.options.get(CONF_ENERGY_COST_ENABLED, DEFAULT_ENERGY_COST_ENABLED)
     if cost_enabled:
-        await _async_migrate_cost_entity_ids(hass, entry, intuis_home)
+        _async_migrate_cost_entity_ids(hass, intuis_home)
 
     # ---------- setup platforms ----------------------------------------------------
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)

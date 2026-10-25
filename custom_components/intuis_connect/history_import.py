@@ -37,6 +37,7 @@ from .utils.const import (
     HISTORY_IMPORT_KEY,
 )
 from .intuis_api.api import RateLimitError, APIError, CannotConnect
+from .hourly_stats import IMPORT_SETTLE_MINUTES, HourlyStatsUpdater
 
 if TYPE_CHECKING:
     from .intuis_api.api import IntuisAPI
@@ -53,8 +54,6 @@ DEFAULT_HISTORY_DAYS = 365
 MAX_HISTORY_DAYS = 730
 API_DELAY_SECONDS = 2.0  # Delay between API calls to avoid rate limiting
 
-# Minimum discontinuity threshold to trigger adjustment (in kWh)
-DISCONTINUITY_THRESHOLD = 1.0
 
 
 async def _get_existing_statistics(
@@ -323,99 +322,6 @@ async def _clear_all_statistics(
     return 0
 
 
-async def _fix_post_import_discontinuity(
-    hass: HomeAssistant,
-    entity_id: str,
-    room_name: str,
-    import_end_time: datetime,
-    import_end_sum: float,
-    metadata: StatisticMetaData,
-) -> int:
-    """Fix statistics discontinuity for data recorded AFTER the import period.
-
-    If the live sensor recorded statistics after the import period ends, those
-    statistics have their own sum baseline. This function detects that discontinuity
-    and adjusts post-import statistics to continue from the import's final sum.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The entity ID to fix.
-        room_name: Room name for logging.
-        import_end_time: The timestamp of the last imported statistic.
-        import_end_sum: The cumulative sum at the end of the import.
-        metadata: StatisticMetaData for re-importing adjusted statistics.
-
-    Returns:
-        Number of statistics entries adjusted.
-    """
-    # Query existing statistics AFTER the import period
-    query_start = import_end_time + timedelta(hours=1)
-    existing_stats = await _get_existing_statistics(hass, entity_id, query_start)
-
-    if not existing_stats:
-        _LOGGER.debug(
-            "No existing statistics found after import period for %s",
-            entity_id,
-        )
-        return 0
-
-    # Check for discontinuity: first post-import sum should continue from import
-    first_existing = existing_stats[0]
-    first_existing_sum = first_existing.get("sum", 0) or 0
-    first_existing_state = first_existing.get("state", 0) or 0
-
-    # Expected: first_existing_sum ≈ import_end_sum + first_existing_state
-    # If first_existing_sum << import_end_sum, there's a discontinuity
-    expected_first_sum = import_end_sum + first_existing_state
-    discontinuity = expected_first_sum - first_existing_sum
-
-    if abs(discontinuity) <= DISCONTINUITY_THRESHOLD:
-        _LOGGER.debug(
-            "No significant post-import discontinuity for %s (delta: %.3f kWh)",
-            entity_id,
-            discontinuity,
-        )
-        return 0
-
-    _LOGGER.info(
-        "Detected post-import discontinuity for %s: "
-        "import ends at %.3f kWh, first post-import sum is %.3f kWh (state: %.3f), "
-        "adjusting %d entries by %.3f kWh",
-        room_name,
-        import_end_sum,
-        first_existing_sum,
-        first_existing_state,
-        len(existing_stats),
-        discontinuity,
-    )
-
-    # Create adjusted statistics to overwrite the existing ones
-    adjusted_statistics = []
-    for stat in existing_stats:
-        stat_start = stat.get("start")
-        if isinstance(stat_start, (int, float)):
-            stat_start = datetime.fromtimestamp(stat_start, tz=timezone.utc)
-
-        adjusted_statistics.append(
-            StatisticData(
-                start=stat_start,
-                state=stat.get("state", 0) or 0,
-                sum=(stat.get("sum", 0) or 0) + discontinuity,
-            )
-        )
-
-    # Import the adjusted statistics (overwrites existing)
-    async_import_statistics(hass, metadata, adjusted_statistics)
-
-    _LOGGER.info(
-        "Adjusted %d post-import statistics entries for %s",
-        len(adjusted_statistics),
-        room_name,
-    )
-
-    return len(adjusted_statistics)
-
-
 class HistoryImportManager:
     """Manages persistent state for energy history import."""
 
@@ -519,16 +425,7 @@ async def async_import_energy_history(
     manager._cancelled = False
     manager.status = "importing"
     manager.last_error = None
-    
-    # Signal to HourlyStatsUpdater that import is running, using hass.data to avoid globals
-    effective_home_id = home_id or intuis_home.id
-    if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = {}
-    if HISTORY_IMPORT_KEY not in hass.data[DOMAIN]:
-        hass.data[DOMAIN][HISTORY_IMPORT_KEY] = {}
-    hass.data[DOMAIN][HISTORY_IMPORT_KEY][effective_home_id] = True
-    _LOGGER.info("History import started - HourlyStatsUpdater paused for home %s", effective_home_id)
-    
+
     # Validate granularity
     if granularity not in ("hourly", "daily"):
         granularity = "hourly"
@@ -630,6 +527,11 @@ async def async_import_energy_history(
     _base_kwh_stat_ts = _yesterday_midnight_utc_ts - 3600
     _sensor_base_stat_ts = _today_midnight_utc_ts - 3600
 
+    # Signal to HourlyStatsUpdater that import is running (cleared in finally)
+    effective_home_id = home_id or intuis_home.id
+    hass.data.setdefault(DOMAIN, {}).setdefault(HISTORY_IMPORT_KEY, {})[effective_home_id] = True
+    _LOGGER.info("History import started - HourlyStatsUpdater paused for home %s", effective_home_id)
+
     try:
         for room_info in rooms_to_import:
             if manager._cancelled:
@@ -729,28 +631,21 @@ async def async_import_energy_history(
                         chunk_begin_ts = int(chunk_start.timestamp())
                         chunk_end_ts = int(chunk_end.timestamp())
                         
-                        try:
-                            chunk_values = await api.async_get_room_energy_hourly(
-                                room_id, chunk_begin_ts, chunk_end_ts
-                            )
-                            if chunk_values:
-                                energy_values.extend(chunk_values)
-                                chunk_num += 1
-                                _LOGGER.debug(
-                                    "Chunk %d for %s: %d hourly values (%s to %s)",
-                                    chunk_num,
-                                    room_name,
-                                    len(chunk_values),
-                                    chunk_start.date(),
-                                    chunk_end.date(),
-                                )
-                        except Exception as chunk_err:
-                            _LOGGER.warning(
-                                "Chunk fetch failed for %s (%s to %s): %s",
+                        # A failed chunk raises: importing the other chunks
+                        # would leave a gap and shift every later sum.
+                        chunk_values = await api.async_get_room_energy_hourly(
+                            room_id, chunk_begin_ts, chunk_end_ts
+                        )
+                        if chunk_values:
+                            energy_values.extend(chunk_values)
+                            chunk_num += 1
+                            _LOGGER.debug(
+                                "Chunk %d for %s: %d hourly values (%s to %s)",
+                                chunk_num,
                                 room_name,
+                                len(chunk_values),
                                 chunk_start.date(),
                                 chunk_end.date(),
-                                chunk_err,
                             )
                         
                         # Move to next chunk
@@ -794,23 +689,21 @@ async def async_import_energy_history(
                     # Sort by timestamp to ensure chronological order
                     energy_values.sort(key=lambda x: x[0])
 
-                    # Deduplicate timestamps from chunk boundaries.
-                    # When chunk N ends at T and chunk N+1 starts at T, the API
-                    # may return the same hour T in both chunks.  Both entries
-                    # accumulate into cumulative_sum but HA only stores the last
-                    # stat for that timestamp → the sum is inflated by the first
-                    # chunk's duplicate.  Merge duplicates by summing their Wh.
-                    deduped: dict[int, float] = {}
-                    for ts_v, wh_v in energy_values:
-                        deduped[ts_v] = deduped.get(ts_v, 0.0) + wh_v
-                    if len(deduped) < len(energy_values):
-                        dupes = len(energy_values) - len(deduped)
-                        _LOGGER.info(
-                            "%s: merged %d duplicate timestamp(s) at chunk boundaries",
-                            room_name,
-                            dupes,
+                    if granularity == "hourly":
+                        # Chunks share their boundary hour: keep one value per
+                        # hour (summing would count it twice), and only hours
+                        # that are complete and settled, like the hourly updater.
+                        count_before = len(energy_values)
+                        energy_values = HourlyStatsUpdater._complete_hours(
+                            energy_values,
+                            int((now.timestamp() - IMPORT_SETTLE_MINUTES * 60) * 1000),
                         )
-                    energy_values = sorted(deduped.items(), key=lambda x: x[0])
+                        if len(energy_values) < count_before:
+                            _LOGGER.info(
+                                "%s: dropped %d duplicate or unfinished hour(s)",
+                                room_name,
+                                count_before - len(energy_values),
+                            )
 
                     # Build statistics from values
                     entries_with_data = 0
@@ -925,24 +818,9 @@ async def async_import_energy_history(
                         cumulative_sum,
                     )
 
-                    # Fix any discontinuity with live sensor data recorded AFTER import
-                    import_end_time = statistics[-1]["start"]
-                    if isinstance(import_end_time, (int, float)):
-                        import_end_time = datetime.fromtimestamp(
-                            import_end_time, tz=timezone.utc
-                        )
-                    adjusted_count = await _fix_post_import_discontinuity(
-                        hass=hass,
-                        entity_id=entity_id,
-                        room_name=room_name,
-                        import_end_time=import_end_time,
-                        import_end_sum=cumulative_sum,
-                        metadata=metadata,
-                    )
-                    if adjusted_count > 0:
-                        results["statistics_adjusted"] = results.get(
-                            "statistics_adjusted", 0
-                        ) + adjusted_count
+                    # Rows after the import end are rewritten by the hourly
+                    # update triggered once the import finishes; it chains from
+                    # the sums imported here.
 
                     # Extract midnight sums for hourly_stats handoff.
                     # Build index: stat_start_utc_ts -> sum

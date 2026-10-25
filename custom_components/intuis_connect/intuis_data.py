@@ -311,11 +311,13 @@ class IntuisData:
 
         today_iso = now.date().isoformat()
 
+        # Rooms are rebuilt on every poll: start from the last known values, so
+        # a failed fetch keeps them instead of showing 0 kWh.
+        for room_id, room in data_by_room.items():
+            room.energy = self._energy_cache.get(room_id, 0.0)
+
         # For daily scale, use caching. For real-time scales, always fetch fresh data.
         if not is_realtime and self._energy_cache.get("_date") == today_iso:
-            # Use cached data
-            for room_id, room in data_by_room.items():
-                room.energy = self._energy_cache.get(room_id, 0.0)
             return
 
         # Build list of rooms with bridge_ids for the API call
@@ -362,17 +364,17 @@ class IntuisData:
             )
             return
 
-        # Cache the results (for daily mode) and populate room.energy
-        # API returns Wh, convert to kWh for display
-        if not is_realtime:
-            self._energy_cache.clear()
-            self._energy_cache["_date"] = today_iso
-
+        # Remember the values (also the fallback for failed rooms) and populate
+        # room.energy. API returns Wh, convert to kWh for display.
         for room_id, room in data_by_room.items():
-            wh = energy_data.get(room_id, 0.0)
-            kwh = wh / 1000.0  # Convert Wh to kWh
-            if not is_realtime:
-                self._energy_cache[room_id] = kwh
+            if room_id not in energy_data:
+                continue  # failed this cycle: keep the last known value
+            kwh = energy_data[room_id] / 1000.0
+            self._energy_cache[room_id] = kwh
             room.energy = kwh
+
+        # Daily mode fetches once per day, but only once every room succeeded
+        if not is_realtime and all(r["id"] in energy_data for r in rooms_for_api):
+            self._energy_cache["_date"] = today_iso
 
         _LOGGER.debug("Energy data fetched (scale=%s): %s", scale, {k: f"{v:.3f} Wh" for k, v in energy_data.items()})

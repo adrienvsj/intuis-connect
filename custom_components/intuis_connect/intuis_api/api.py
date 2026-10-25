@@ -793,11 +793,14 @@ class IntuisAPI:
                     room_id, date_begin, date_end, scale
                 )
                 result[room_id] = energy
-            except (APIError, CannotConnect, RateLimitError, aiohttp.ClientError, asyncio.TimeoutError) as e:
+            except RateLimitError as e:
+                _LOGGER.warning("Rate limited while fetching energy, stopping: %s", e)
+                break
+            except (APIError, CannotConnect, aiohttp.ClientError, asyncio.TimeoutError) as e:
+                # Left out of the result: reporting 0 Wh would look like a reset
                 _LOGGER.warning(
                     "Failed to get energy for room %s: %s", room_id, e
                 )
-                result[room_id] = 0.0
 
         return result
 
@@ -852,14 +855,8 @@ class IntuisAPI:
 
             return total_energy
 
-        except (APIError, KeyError, ValueError, TypeError) as e:
-            _LOGGER.warning(
-                "Energy measure request failed for room %s: %s",
-                room_id,
-                e,
-                exc_info=True,
-            )
-            return 0.0
+        except (KeyError, ValueError, TypeError) as e:
+            raise APIError(f"Malformed energy response for room {room_id}: {e}") from e
 
     async def async_get_room_energy_hourly(
         self, room_id: str, date_begin: int, date_end: int
@@ -879,7 +876,9 @@ class IntuisAPI:
 
         Returns:
             List of tuples (timestamp, energy_wh) for each hour in the range.
-            Empty list on error.
+
+        Raises:
+            APIError, CannotConnect, RateLimitError: the request failed.
         """
         form_data = {
             "home_id": self.home_id,
@@ -933,14 +932,10 @@ class IntuisAPI:
 
             return hourly_values
 
-        except (APIError, KeyError, ValueError, TypeError) as e:
-            # Log at debug level - hourly requests may fail, caller will fallback
-            _LOGGER.debug(
-                "Hourly energy request failed for room %s: %s",
-                room_id,
-                e,
-            )
-            return []
+        except (KeyError, ValueError, TypeError) as e:
+            # Raise instead of returning []: callers must not mistake a failure
+            # for a period without consumption (that would shift later sums)
+            raise APIError(f"Malformed hourly energy response for room {room_id}: {e}") from e
 
     async def async_get_room_energy_daily(
         self, room_id: str, date_begin: int, date_end: int
@@ -958,7 +953,9 @@ class IntuisAPI:
 
         Returns:
             List of tuples (timestamp, energy_wh) for each day in the range.
-            Empty list on error.
+
+        Raises:
+            APIError, CannotConnect, RateLimitError: the request failed.
         """
         form_data = {
             "home_id": self.home_id,
@@ -1012,14 +1009,8 @@ class IntuisAPI:
 
             return daily_values
 
-        except (APIError, KeyError, ValueError, TypeError) as e:
-            _LOGGER.warning(
-                "Daily energy request failed for room %s: %s",
-                room_id,
-                e,
-                exc_info=True,
-            )
-            return []
+        except (KeyError, ValueError, TypeError) as e:
+            raise APIError(f"Malformed daily energy response for room {room_id}: {e}") from e
 
     async def async_get_schedule(
             self, home_id: str, schedule_id: int

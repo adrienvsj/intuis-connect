@@ -1,139 +1,162 @@
+# Field names and descriptions are in translations/<language>.json.
+# Schedule, zone and room names are free text: they are checked against the
+# home's live data when the action runs.
+
 switch_schedule:
-  name: Switch Schedule
-  description: Switch to a different heating schedule. The schedule applies to all
-    rooms in the home.
   fields:
     schedule_name:
-      name: Schedule Name
-      description: Select the schedule to activate.
       required: true
+      example: "Weekdays"
       selector:
-        select:
-          options: &id001
-          - label: 'Rouge '
-            value: 'Rouge '
-          - label: Normal
-            value: Normal
+        text:
+    home_id:
+      selector:
+        text:
+
 refresh_schedules:
-  name: Refresh Schedules
-  description: Force a refresh of all schedule and home data from the Intuis API.
-set_schedule_slot:
-  name: Set Schedule Slot
-  description: Set a zone for a specific time range in the active heating schedule.
-    Creates a slot from start_time to end_time with the specified zone.
   fields:
-    day:
-      name: Day of Week
-      description: Select the day of the week.
-      required: true
+    home_id:
       selector:
-        select:
-          options:
-          - label: Lundi
-            value: '0'
-          - label: Mardi
-            value: '1'
-          - label: Mercredi
-            value: '2'
-          - label: Jeudi
-            value: '3'
-          - label: Vendredi
-            value: '4'
-          - label: Samedi
-            value: '5'
-          - label: Dimanche
-            value: '6'
-    start_time:
-      name: Start Time
-      description: When the zone should start (24-hour format).
-      required: true
-      example: 08:00
-      selector:
-        time: null
-    end_time:
-      name: End Time
-      description: When the zone should end.
-      required: true
-      example: '22:00'
-      selector:
-        time: null
-    zone_name:
-      name: Zone Name
-      description: Select the zone to apply.
-      required: true
-      selector:
-        select:
-          options:
-          - label: Comfort
-            value: Comfort
-          - label: Eco
-            value: Eco
-          - label: À la maison
-            value: À la maison
-          - label: Nuit
-            value: Nuit
-set_zone_temperature:
-  name: Set Zone Temperature
-  description: Set the temperature for a specific room in a schedule zone. Works with
-    any schedule, not just the active one.
+        text:
+
+set_schedule_slot:
   fields:
     schedule_name:
-      name: Schedule Name
-      description: Select the schedule to modify.
+      example: "Weekdays"
+      selector:
+        text:
+    start_day:
       required: true
+      example: "0"
       selector:
         select:
-          options: *id001
+          translation_key: day
+          options: ["0", "1", "2", "3", "4", "5", "6"]
+    start_time:
+      required: true
+      example: "08:00"
+      selector:
+        time:
+    end_day:
+      required: true
+      example: "0"
+      selector:
+        select:
+          translation_key: day
+          options: ["0", "1", "2", "3", "4", "5", "6"]
+    end_time:
+      required: true
+      example: "12:00"
+      selector:
+        time:
     zone_name:
-      name: Zone Name
-      description: Select the zone within the schedule.
       required: true
+      example: "Comfort"
       selector:
-        select:
-          options:
-          - label: Comfort
-            value: Comfort
-          - label: Eco
-            value: Eco
-          - label: À la maison
-            value: À la maison
-          - label: Nuit
-            value: Nuit
+        text:
+    home_id:
+      selector:
+        text:
+
+set_zone_temperature:
+  fields:
+    schedule_id:
+      selector:
+        text:
+    schedule_name:
+      example: "Weekdays"
+      selector:
+        text:
+    zone_name:
+      required: true
+      example: "Comfort"
+      selector:
+        text:
     room_name:
-      name: Room Name
-      description: Select the room to set temperature for.
       required: true
+      example: "Living room"
       selector:
-        select:
-          options: &id002
-          - label: Salon
-            value: Salon
-          - label: Chambre
-            value: Chambre
-          - label: Bureau
-            value: Bureau
-          - label: Cuisine
-            value: Cuisine
+        text:
     temperature:
-      name: Temperature
-      description: Target temperature in Celsius (5-30).
       required: true
+      example: 19.5
       selector:
         number:
           min: 5
           max: 30
           step: 0.5
-          unit_of_measurement: °C
+          unit_of_measurement: "°C"
           mode: box
+    home_id:
+      selector:
+        text:
+
+sync_schedule:
+  fields:
+    schedule_id:
+      selector:
+        text:
+    schedule_name:
+      example: "Weekdays"
+      selector:
+        text:
+    timetable:
+      required: true
+      example: '[{"zone_id": 0, "m_offset": 0}, {"zone_id": 1, "m_offset": 420}]'
+      selector:
+        text:
+          multiline: true
+    away_temp:
+      selector:
+        number:
+          min: 5
+          max: 25
+          step: 0.5
+          unit_of_measurement: "°C"
+    hg_temp:
+      selector:
+        number:
+          min: 5
+          max: 15
+          step: 0.5
+          unit_of_measurement: "°C"
+    home_id:
+      selector:
+        text:
+
 import_energy_history:
-  name: Import Energy History
-  description: Import historical energy data from Intuis cloud to existing sensor
-    entities. Data appears on the same energy sensor entities used in the Energy Dashboard.
   fields:
     days:
-      name: Days to Import
-      description: Number of days of history to import (1-730).
-      required: false
+      default: 365
+      selector:
+        number:
+          min: 1
+          max: 730
+          step: 1
+          mode: box
+    granularity:
+      default: hourly
+      selector:
+        select:
+          translation_key: granularity
+          options:
+            - hourly
+            - daily
+    clear_existing:
+      default: false
+      selector:
+        boolean:
+    room_name:
+      example: "Living room"
+      selector:
+        text:
+    home_id:
+      selector:
+        text:
+
+recalculate_cost_history:
+  fields:
+    days:
       default: 365
       selector:
         number:
@@ -142,9 +165,9 @@ import_energy_history:
           step: 1
           mode: box
     room_name:
-      name: Room (Optional)
-      description: Import only this room. Leave empty for all rooms.
-      required: false
+      example: "Living room"
       selector:
-        select:
-          options: *id002
+        text:
+    home_id:
+      selector:
+        text:

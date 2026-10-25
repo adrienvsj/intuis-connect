@@ -10,10 +10,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.loader import async_get_integration
 
@@ -32,10 +34,7 @@ from .intuis_api.api import (
     RateLimitError,
 )
 from .intuis_data import IntuisData
-from .services import (
-    async_generate_services_yaml,
-    async_register_services,
-)
+from .services import async_register_services
 from .utils.const import (
     CONF_CIRCUIT_BREAKER_THRESHOLD,
     CONF_ENERGY_COST_ENABLED,
@@ -243,6 +242,17 @@ class IntuisPlanningView(HomeAssistantView):
         )
 
 
+# Set up from config entries only (no YAML configuration)
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the services once; they act on every configured home."""
+    hass.data.setdefault(DOMAIN, {})
+    await async_register_services(hass)
+    return True
+
+
 @callback
 def _async_remove_legacy_home_device(hass: HomeAssistant, entry: ConfigEntry, home_id: str) -> None:
     """Remove the second "Intuis Home" device used by versions before 2.2.
@@ -306,9 +316,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Cloud outage or rate limit: Home Assistant retries the setup later
         raise ConfigEntryNotReady(str(err)) from err
     _LOGGER.debug("Intuis home: %s", intuis_home.__str__())
-
-    # ---------- generate dynamic services.yaml -------------------------------------
-    await async_generate_services_yaml(hass, intuis_home)
 
     # ---------- shared overrides (sticky intents) with persistence -----------------
     # Set up storage for persisting overrides across restarts
@@ -414,9 +421,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # ---------- setup platforms ----------------------------------------------------
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_remove_legacy_home_device(hass, entry, intuis_home.id)
-
-    # ---------- register services -------------------------------------------------
-    await async_register_services(hass, entry)
 
     # ---------- register planning HTML view (auto cache-busting) ------------------
     # Guard: register only once across all entries (route cannot be registered twice)

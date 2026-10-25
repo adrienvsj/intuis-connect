@@ -6,15 +6,13 @@ including dynamic services.yaml generation for the Home Assistant UI.
 from __future__ import annotations
 
 import logging
-from functools import partial
-from pathlib import Path
+from collections.abc import Awaitable, Callable
+from functools import partial, wraps
 from typing import TYPE_CHECKING
 
 import voluptuous as vol
-import yaml
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -43,7 +41,13 @@ from .history_import import (
     HistoryImportManager,
     async_import_energy_history,
 )
-from .intuis_api.api import APIError, CannotConnect, IntuisAPI, RateLimitError
+from .intuis_api.api import (
+    APIError,
+    CannotConnect,
+    IntuisAPI,
+    InvalidAuth,
+    RateLimitError,
+)
 from .timetable import (
     DAYS_OF_WEEK,
     DAYS_OF_WEEK_LABELS,
@@ -95,312 +99,31 @@ REFRESH_SCHEDULES_SCHEMA = vol.Schema({
 })
 
 
-async def async_generate_services_yaml(hass: HomeAssistant, intuis_home: IntuisHome) -> None:
-    """Generate services.yaml with dynamic options from API data.
+def _with_api_errors(
+    handler: Callable[[ServiceCall], Awaitable[None]],
+) -> Callable[[ServiceCall], Awaitable[None]]:
+    """Report Intuis API errors to the caller as translated Home Assistant errors."""
 
-    This allows the Home Assistant UI to show dropdown lists populated
-    with actual schedule and zone names from the user's Intuis account.
-    """
-    # Collect schedule names (only home-level schedules with zones and timetables)
-    schedule_names: list[str] = []
-    zone_names: list[str] = []
-    all_zone_names: list[str] = []  # All zones from all schedules
-    room_names: list[str] = []
+    @wraps(handler)
+    async def wrapper(call: ServiceCall) -> None:
+        try:
+            await handler(call)
+        except InvalidAuth as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="auth_failed"
+            ) from err
+        except (APIError, CannotConnect, RateLimitError) as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="api_error",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
-    # Log all schedules for debugging
-    _LOGGER.debug("=== All schedules from API ===")
-    for schedule in intuis_home.schedules:
-        if isinstance(schedule, IntuisThermSchedule):
-            zone_count = len(schedule.zones) if schedule.zones else 0
-            timetable_count = len(schedule.timetables) if schedule.timetables else 0
-            # Count total rooms_temp across all zones
-            rooms_temp_count = sum(
-                len(z.rooms_temp) for z in schedule.zones
-                if isinstance(z, IntuisThermZone) and z.rooms_temp
-            ) if schedule.zones else 0
-            _LOGGER.debug(
-                "Schedule: '%s' (ID: %s) - zones: %d, timetables: %d, rooms_temp: %d, selected: %s, default: %s",
-                schedule.name, schedule.id, zone_count, timetable_count, rooms_temp_count,
-                schedule.selected, schedule.default
-            )
-
-    for schedule in intuis_home.schedules:
-        if isinstance(schedule, IntuisThermSchedule):
-            # Only include schedules that have zones defined (home-level schedules)
-            has_zones = schedule.zones and len(schedule.zones) > 0
-            has_timetables = schedule.timetables and len(schedule.timetables) > 0
-
-            if has_zones and has_timetables:
-                schedule_names.append(schedule.name)
-                # Collect zones from all schedules
-                for zone in schedule.zones:
-                    if isinstance(zone, IntuisThermZone):
-                        if zone.name not in all_zone_names:
-                            all_zone_names.append(zone.name)
-                        if schedule.selected:
-                            zone_names.append(zone.name)
-
-    # Collect room names from home.rooms
-    for room_id, room_def in intuis_home.rooms.items():
-        room_name = room_def.name if hasattr(room_def, 'name') else str(room_id)
-        if room_name not in room_names:
-            room_names.append(room_name)
-
-    # Build day options with labels
-    day_options = [
-        {"label": day_label, "value": str(i)}
-        for i, day_label in enumerate(DAYS_OF_WEEK_LABELS)
-    ]
-
-    # Build schedule options
-    schedule_options = [{"label": name, "value": name} for name in schedule_names]
-    if not schedule_options:
-        schedule_options = [{"label": "No schedules found", "value": ""}]
-
-    # Build zone options (active schedule only for set_schedule_slot)
-    zone_options = [{"label": name, "value": name} for name in zone_names]
-    if not zone_options:
-        zone_options = [{"label": "No zones found", "value": ""}]
-
-    # Build all zone options (all schedules for set_zone_temperature)
-    all_zone_options = [{"label": name, "value": name} for name in all_zone_names]
-    if not all_zone_options:
-        all_zone_options = [{"label": "No zones found", "value": ""}]
-
-    # Build room options
-    room_options = [{"label": name, "value": name} for name in room_names]
-    if not room_options:
-        room_options = [{"label": "No rooms found", "value": ""}]
-
-    # Build services.yaml content
-    services_config = {
-        "switch_schedule": {
-            "name": "Switch Schedule",
-            "description": "Switch to a different heating schedule. The schedule applies to all rooms in the home.",
-            "fields": {
-                "schedule_name": {
-                    "name": "Schedule Name",
-                    "description": "Select the schedule to activate.",
-                    "required": True,
-                    "selector": {
-                        "select": {
-                            "options": schedule_options,
-                        }
-                    }
-                }
-            }
-        },
-        "refresh_schedules": {
-            "name": "Refresh Schedules",
-            "description": "Force a refresh of all schedule and home data from the Intuis API.",
-        },
-        "set_schedule_slot": {
-            "name": "Set Schedule Slot",
-            "description": "Set a zone for a specific time range in a heating schedule. Creates a slot from start_time to end_time with the specified zone. If no schedule_name is provided, uses the active schedule.",
-            "fields": {
-                "schedule_name": {
-                    "name": "Schedule Name",
-                    "description": "Select the schedule to modify (optional, defaults to active schedule).",
-                    "required": False,
-                    "selector": {
-                        "select": {
-                            "options": schedule_options,
-                        }
-                    }
-                },
-                "day": {
-                    "name": "Day of Week",
-                    "description": "Select the day of the week.",
-                    "required": True,
-                    "selector": {
-                        "select": {
-                            "options": day_options,
-                        }
-                    }
-                },
-                "start_time": {
-                    "name": "Start Time",
-                    "description": "When the zone should start (24-hour format).",
-                    "required": True,
-                    "example": "08:00",
-                    "selector": {
-                        "time": None
-                    }
-                },
-                "end_time": {
-                    "name": "End Time",
-                    "description": "When the zone should end.",
-                    "required": True,
-                    "example": "22:00",
-                    "selector": {
-                        "time": None
-                    }
-                },
-                "zone_name": {
-                    "name": "Zone Name",
-                    "description": "Select the zone to apply.",
-                    "required": True,
-                    "selector": {
-                        "select": {
-                            "options": zone_options,
-                        }
-                    }
-                }
-            }
-        },
-        "sync_schedule": {
-            "name": "Sync Full Schedule",
-            "description": "Synchronize the complete timetable for a schedule. Used by the planning UI to save all changes at once.",
-            "fields": {
-                "schedule_name": {
-                    "name": "Schedule Name",
-                    "description": "Select the schedule to sync.",
-                    "required": True,
-                    "selector": {
-                        "select": {
-                            "options": schedule_options,
-                        }
-                    }
-                },
-                "timetable": {
-                    "name": "Timetable",
-                    "description": "JSON array of timetable entries [{zone_id, m_offset}, ...]",
-                    "required": True,
-                    "example": "[{\"zone_id\": 0, \"m_offset\": 0}, {\"zone_id\": 1, \"m_offset\": 480}]",
-                    "selector": {
-                        "text": {
-                            "multiline": True
-                        }
-                    }
-                }
-            }
-        },
-        "set_zone_temperature": {
-            "name": "Set Zone Temperature",
-            "description": "Set the temperature for a specific room in a schedule zone. Works with any schedule, not just the active one.",
-            "fields": {
-                "schedule_name": {
-                    "name": "Schedule Name",
-                    "description": "Select the schedule to modify.",
-                    "required": True,
-                    "selector": {
-                        "select": {
-                            "options": schedule_options,
-                        }
-                    }
-                },
-                "zone_name": {
-                    "name": "Zone Name",
-                    "description": "Select the zone within the schedule.",
-                    "required": True,
-                    "selector": {
-                        "select": {
-                            "options": all_zone_options,
-                        }
-                    }
-                },
-                "room_name": {
-                    "name": "Room Name",
-                    "description": "Select the room to set temperature for.",
-                    "required": True,
-                    "selector": {
-                        "select": {
-                            "options": room_options,
-                        }
-                    }
-                },
-                "temperature": {
-                    "name": "Temperature",
-                    "description": "Target temperature in Celsius (5-30).",
-                    "required": True,
-                    "selector": {
-                        "number": {
-                            "min": 5,
-                            "max": 30,
-                            "step": 0.5,
-                            "unit_of_measurement": "°C",
-                            "mode": "box"
-                        }
-                    }
-                }
-            }
-        },
-        "import_energy_history": {
-            "name": "Import Energy History",
-            "description": "Import historical energy data from Intuis cloud to existing sensor entities. Data appears on the same energy sensor entities used in the Energy Dashboard.",
-            "fields": {
-                "days": {
-                    "name": "Days to Import",
-                    "description": "Number of days of history to import (1-730).",
-                    "required": False,
-                    "default": DEFAULT_HISTORY_DAYS,
-                    "selector": {
-                        "number": {
-                            "min": 1,
-                            "max": MAX_HISTORY_DAYS,
-                            "step": 1,
-                            "mode": "box"
-                        }
-                    }
-                },
-                "granularity": {
-                    "name": "Granularity",
-                    "description": "Choose between hourly data (recommended for Energy Dashboard) or daily data (faster import).",
-                    "required": False,
-                    "default": "hourly",
-                    "selector": {
-                        "select": {
-                            "options": [
-                                {"value": "hourly", "label": "Hourly (recommended)"},
-                                {"value": "daily", "label": "Daily (faster)"}
-                            ]
-                        }
-                    }
-                },
-                "clear_existing": {
-                    "name": "Clear existing statistics",
-                    "description": "Delete ALL existing energy statistics before import. Required when changing from daily to hourly granularity to avoid data inconsistencies.",
-                    "required": False,
-                    "default": False,
-                    "selector": {
-                        "boolean": {}
-                    }
-                },
-                "room_name": {
-                    "name": "Room (Optional)",
-                    "description": "Import only this room. Leave empty for all rooms.",
-                    "required": False,
-                    "selector": {
-                        "select": {
-                            "options": room_options,
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    # Write to services.yaml using async I/O
-    services_yaml_path = Path(__file__).parent / "services.yaml"
-    yaml_content = yaml.dump(services_config, default_flow_style=False, allow_unicode=True, sort_keys=False)
-
-    def write_file() -> None:
-        with open(services_yaml_path, "w", encoding="utf-8") as f:
-            f.write(yaml_content)
-
-    try:
-        await hass.async_add_executor_job(write_file)
-        _LOGGER.info(
-            "Generated services.yaml with %d schedules and %d zones",
-            len(schedule_names),
-            len(zone_names),
-        )
-    except OSError as err:
-        _LOGGER.error("Failed to generate services.yaml: %s", err)
+    return wrapper
 
 
-async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Register Intuis Connect services."""
+async def async_register_services(hass: HomeAssistant) -> None:
+    """Register the Intuis Connect services (once, for every configured home)."""
 
     def _get_target_entries(target_home_id: str | None) -> list[tuple[str, dict]]:
         """Get config entries matching the target home_id.
@@ -412,7 +135,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             List of (entry_id, data) tuples for matching entries.
         """
         entries = []
-        for entry_id, data in list(hass.data[DOMAIN].items()):
+        for entry_id, data in list(hass.data.get(DOMAIN, {}).items()):
             if not isinstance(data, dict):
                 continue
             intuis_home: IntuisHome = data.get("intuis_home")
@@ -429,17 +152,14 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         target_home_id = call.data.get(ATTR_HOME_ID)
 
         if not schedule_name:
-            _LOGGER.error("schedule_name must be provided")
-            return
+            raise ServiceValidationError("schedule_name must be provided")
 
         entries = _get_target_entries(target_home_id)
 
         if not entries:
             if target_home_id:
-                _LOGGER.error("Home with ID %s not found", target_home_id)
-            else:
-                _LOGGER.error("No configured homes found")
-            return
+                raise ServiceValidationError(f"Home with ID {target_home_id} not found")
+            raise ServiceValidationError("No configured homes found")
 
         # Warn if multiple homes and no home_id specified
         if len(entries) > 1 and not target_home_id:
@@ -457,8 +177,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         coordinator = data.get("coordinator")
 
         if not api or not intuis_home:
-            _LOGGER.error("API or home data not available")
-            return
+            raise ServiceValidationError("API or home data not available")
 
         # Find the schedule by name
         target_schedule = None
@@ -471,12 +190,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                     break
 
         if not target_schedule:
-            _LOGGER.error(
-                "Schedule not found: %s. Available schedules: %s",
-                schedule_name,
-                available_schedules
-            )
-            return
+            raise ServiceValidationError(f"Schedule not found: {schedule_name}. Available schedules: {available_schedules}")
 
         _LOGGER.info(
             "Switching to schedule: %s (ID: %s) for home %s",
@@ -495,14 +209,14 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             if coordinator:
                 await coordinator.async_request_refresh()
         except (APIError, CannotConnect, RateLimitError) as err:
-            _LOGGER.error("Failed to switch schedule: %s", err)
+            _LOGGER.debug("Failed to switch schedule: %s", err)
             raise
 
     async def async_handle_refresh_schedules(call: ServiceCall) -> None:
         """Handle refresh_schedules service call.
 
         This fetches fresh schedule data from the Intuis API and updates
-        the local state, then regenerates services.yaml with updated options.
+        the local state.
 
         Optional home_id parameter targets a specific home (for multi-home setups).
         If not provided, refreshes all configured homes.
@@ -510,7 +224,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         target_home_id = call.data.get(ATTR_HOME_ID)
         refreshed_count = 0
 
-        for entry_id, data in list(hass.data[DOMAIN].items()):
+        for entry_id, data in list(hass.data.get(DOMAIN, {}).items()):
             if not isinstance(data, dict):
                 continue
 
@@ -543,9 +257,6 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                     intuis_home.name or intuis_home.id,
                 )
 
-                # Regenerate services.yaml with updated schedule/zone options
-                await async_generate_services_yaml(hass, intuis_home)
-
                 # Also trigger coordinator refresh for room status
                 if coordinator:
                     await coordinator.async_request_refresh()
@@ -553,7 +264,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 refreshed_count += 1
 
             except (APIError, CannotConnect, RateLimitError) as err:
-                _LOGGER.error(
+                _LOGGER.debug(
                     "Failed to refresh schedules for home %s: %s",
                     intuis_home.name or intuis_home.id,
                     err,
@@ -680,8 +391,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         coordinator = data.get("coordinator")
 
         if not api or not intuis_home:
-            _LOGGER.error("API or home data not available")
-            return
+            raise ServiceValidationError("API or home data not available")
 
         # Find the target schedule (by name if provided, otherwise active)
         target_schedule = None
@@ -809,7 +519,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             _LOGGER.info("Schedule slot updated successfully")
 
         except (APIError, CannotConnect, RateLimitError) as err:
-            _LOGGER.error("Failed to set schedule slot: %s", err)
+            _LOGGER.debug("Failed to set schedule slot: %s", err)
             raise
 
     async def async_handle_set_zone_temperature(call: ServiceCall) -> None:
@@ -828,26 +538,21 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         target_home_id = call.data.get(ATTR_HOME_ID)
 
         if not schedule_id and not schedule_name:
-            _LOGGER.error("Either schedule_id or schedule_name must be provided")
-            return
+            raise ServiceValidationError("Either schedule_id or schedule_name must be provided")
             
         if not all([zone_name, room_name, temperature is not None]):
-            _LOGGER.error("Missing required parameters for set_zone_temperature")
-            return
+            raise ServiceValidationError("Missing required parameters for set_zone_temperature")
 
         # Validate temperature range
         if not (5 <= temperature <= 30):
-            _LOGGER.error("Temperature must be between 5 and 30, got: %s", temperature)
-            return
+            raise ServiceValidationError(f"Temperature must be between 5 and 30, got: {temperature}")
 
         entries = _get_target_entries(target_home_id)
 
         if not entries:
             if target_home_id:
-                _LOGGER.error("Home with ID %s not found", target_home_id)
-            else:
-                _LOGGER.error("No configured homes found")
-            return
+                raise ServiceValidationError(f"Home with ID {target_home_id} not found")
+            raise ServiceValidationError("No configured homes found")
 
         # Warn if multiple homes and no home_id specified
         if len(entries) > 1 and not target_home_id:
@@ -865,8 +570,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         coordinator = data.get("coordinator")
 
         if not api or not intuis_home:
-            _LOGGER.error("API or home data not available")
-            return
+            raise ServiceValidationError("API or home data not available")
 
         # Find the target schedule by ID (preferred) or name (fallback)
         target_schedule = None
@@ -892,13 +596,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                         break
 
         if not target_schedule:
-            _LOGGER.error(
-                "Schedule not found: ID=%s, name=%s. Available schedules: %s",
-                schedule_id,
-                schedule_name,
-                available_schedules,
-            )
-            return
+            raise ServiceValidationError(f"Schedule not found: ID={schedule_id}, name={schedule_name}. Available schedules: {available_schedules}")
 
         # Find the target zone by name within the schedule
         target_zone = None
@@ -911,13 +609,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                     break
 
         if not target_zone:
-            _LOGGER.error(
-                "Zone not found: %s in schedule %s. Available zones: %s",
-                zone_name,
-                schedule_name,
-                available_zones,
-            )
-            return
+            raise ServiceValidationError(f"Zone not found: {zone_name} in schedule {schedule_name}. Available zones: {available_zones}")
 
         # Find the room by name and get its ID
         room_id = None
@@ -930,12 +622,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 break
 
         if not room_id:
-            _LOGGER.error(
-                "Room not found: %s. Available rooms: %s",
-                room_name,
-                available_rooms,
-            )
-            return
+            raise ServiceValidationError(f"Room not found: {room_name}. Available rooms: {available_rooms}")
 
         # Find and update the room temperature in the zone
         room_temp_found = False
@@ -956,13 +643,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 break
 
         if not room_temp_found:
-            _LOGGER.error(
-                "Room '%s' (ID: %s) not found in zone '%s' rooms_temp",
-                room_name,
-                room_id,
-                zone_name,
-            )
-            return
+            raise ServiceValidationError(f"Room '{room_name}' (ID: {room_id}) not found in zone '{zone_name}' rooms_temp")
 
         # Build zones payload (only rooms_temp, not rooms - API requirement)
         zones_payload = []
@@ -1004,7 +685,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             _LOGGER.info("Zone temperature updated successfully")
 
         except (APIError, CannotConnect, RateLimitError) as err:
-            _LOGGER.error("Failed to set zone temperature: %s", err)
+            _LOGGER.debug("Failed to set zone temperature: %s", err)
             raise
 
     async def async_handle_sync_schedule(call: ServiceCall) -> None:
@@ -1025,12 +706,10 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         override_hg_temp = call.data.get(ATTR_HG_TEMP)
 
         if not schedule_id and not schedule_name:
-            _LOGGER.error("Either schedule_id or schedule_name must be provided")
-            return
+            raise ServiceValidationError("Either schedule_id or schedule_name must be provided")
 
         if not timetable_json:
-            _LOGGER.error("timetable must be provided")
-            return
+            raise ServiceValidationError("timetable must be provided")
 
         # Parse timetable JSON
         try:
@@ -1054,17 +733,14 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 })
                 
         except (json.JSONDecodeError, ValueError) as err:
-            _LOGGER.error("Invalid timetable format: %s", err)
-            return
+            raise ServiceValidationError(f"Invalid timetable format: {err}")
 
         entries = _get_target_entries(target_home_id)
 
         if not entries:
             if target_home_id:
-                _LOGGER.error("Home with ID %s not found", target_home_id)
-            else:
-                _LOGGER.error("No configured homes found")
-            return
+                raise ServiceValidationError(f"Home with ID {target_home_id} not found")
+            raise ServiceValidationError("No configured homes found")
 
         # Process first matching entry
         entry_id, data = entries[0]
@@ -1073,8 +749,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         coordinator = data.get("coordinator")
 
         if not api or not intuis_home:
-            _LOGGER.error("API or home data not available")
-            return
+            raise ServiceValidationError("API or home data not available")
 
         # Find the target schedule by ID (preferred) or name (fallback)
         target_schedule = None
@@ -1098,13 +773,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                         )
 
         if not target_schedule:
-            _LOGGER.error(
-                "Schedule not found: ID=%s, name=%s. Available schedules: %s",
-                schedule_id,
-                schedule_name,
-                available_schedules,
-            )
-            return
+            raise ServiceValidationError(f"Schedule not found: ID={schedule_id}, name={schedule_name}. Available schedules: {available_schedules}")
 
         # Get valid zone IDs from the schedule
         valid_zone_ids = {zone.id for zone in target_schedule.zones if isinstance(zone, IntuisThermZone)}
@@ -1113,19 +782,10 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         # Validate all zone_ids in timetable exist in the schedule
         for entry in timetable:
             if entry["zone_id"] not in valid_zone_ids:
-                _LOGGER.error(
-                    "Invalid zone_id %d in timetable. Valid IDs: %s",
-                    entry["zone_id"],
-                    valid_zone_ids,
-                )
-                return
+                raise ServiceValidationError(f"Invalid zone_id {entry['zone_id']} in timetable. Valid IDs: {valid_zone_ids}")
             # Validate m_offset is in valid range (0-10079)
             if not (0 <= entry["m_offset"] < 10080):
-                _LOGGER.error(
-                    "Invalid m_offset %d in timetable. Must be 0-10079",
-                    entry["m_offset"],
-                )
-                return
+                raise ServiceValidationError(f"Invalid m_offset {entry['m_offset']} in timetable. Must be 0-10079")
 
         _LOGGER.info(
             "Syncing full timetable for schedule '%s' with %d entries",
@@ -1224,7 +884,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             _LOGGER.info("Schedule timetable synced successfully")
 
         except (APIError, CannotConnect, RateLimitError) as err:
-            _LOGGER.error("Failed to sync schedule: %s", err)
+            _LOGGER.debug("Failed to sync schedule: %s", err)
             raise
 
     # Store for import managers (one per entry)
@@ -1250,10 +910,8 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
 
         if not entries:
             if target_home_id:
-                _LOGGER.error("Home with ID %s not found", target_home_id)
-            else:
-                _LOGGER.error("No configured homes found")
-            return
+                raise ServiceValidationError(f"Home with ID {target_home_id} not found")
+            raise ServiceValidationError("No configured homes found")
 
         import_count = 0
         for entry_id, data in entries:
@@ -1315,52 +973,12 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         else:
             _LOGGER.info("Started energy history import for %d home(s)", import_count)
 
-    # Build dynamic options from coordinator data
-    intuis_home: IntuisHome = hass.data[DOMAIN][entry.entry_id].get("intuis_home")
-
-    schedule_options: list[dict] = []
-    zone_options: list[dict] = []
-    all_zone_options: list[dict] = []
-    room_options: list[dict] = []
-
-    if intuis_home:
-        for schedule in intuis_home.schedules:
-            if isinstance(schedule, IntuisThermSchedule):
-                has_zones = schedule.zones and len(schedule.zones) > 0
-                has_timetables = schedule.timetables and len(schedule.timetables) > 0
-                if has_zones and has_timetables:
-                    schedule_options.append({
-                        "value": schedule.name,
-                        "label": schedule.name,
-                    })
-                    # Collect zones from all schedules
-                    for zone in schedule.zones:
-                        if isinstance(zone, IntuisThermZone):
-                            zone_opt = {"value": zone.name, "label": zone.name}
-                            if zone_opt not in all_zone_options:
-                                all_zone_options.append(zone_opt)
-                            if schedule.selected:
-                                zone_options.append(zone_opt)
-
-        # Collect room options
-        for room_id, room_def in intuis_home.rooms.items():
-            room_name = room_def.name if hasattr(room_def, 'name') else str(room_id)
-            room_opt = {"value": room_name, "label": room_name}
-            if room_opt not in room_options:
-                room_options.append(room_opt)
-
-    _LOGGER.debug("Dynamic schedule options: %s", schedule_options)
-    _LOGGER.debug("Dynamic zone options: %s", zone_options)
-    _LOGGER.debug("Dynamic all zone options: %s", all_zone_options)
-    _LOGGER.debug("Dynamic room options: %s", room_options)
-
     # Day options with English labels
     day_options = [
         {"value": str(i), "label": label}
         for i, label in enumerate(DAYS_OF_WEEK_LABELS)
     ]
 
-    # Build dynamic schemas with SelectSelector for proper dropdown UI
     # Schedule, zone and room names are validated by the handlers against the
     # live data: options captured here would reject zones of a schedule
     # activated later. The UI dropdowns come from services.yaml.
@@ -1463,7 +1081,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         hass.services.async_register(
             DOMAIN,
             SERVICE_SWITCH_SCHEDULE,
-            async_handle_switch_schedule,
+            _with_api_errors(async_handle_switch_schedule),
             schema=switch_schedule_schema,
         )
 
@@ -1471,7 +1089,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         hass.services.async_register(
             DOMAIN,
             SERVICE_REFRESH_SCHEDULES,
-            async_handle_refresh_schedules,
+            _with_api_errors(async_handle_refresh_schedules),
             schema=REFRESH_SCHEDULES_SCHEMA,
         )
 
@@ -1479,7 +1097,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         hass.services.async_register(
             DOMAIN,
             SERVICE_SET_SCHEDULE_SLOT,
-            async_handle_set_schedule_slot,
+            _with_api_errors(async_handle_set_schedule_slot),
             schema=set_schedule_slot_schema,
         )
 
@@ -1487,7 +1105,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         hass.services.async_register(
             DOMAIN,
             SERVICE_SET_ZONE_TEMPERATURE,
-            async_handle_set_zone_temperature,
+            _with_api_errors(async_handle_set_zone_temperature),
             schema=set_zone_temperature_schema,
         )
 
@@ -1495,7 +1113,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         hass.services.async_register(
             DOMAIN,
             SERVICE_SYNC_SCHEDULE,
-            async_handle_sync_schedule,
+            _with_api_errors(async_handle_sync_schedule),
             schema=sync_schedule_schema,
         )
 
@@ -1503,7 +1121,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         hass.services.async_register(
             DOMAIN,
             SERVICE_IMPORT_ENERGY_HISTORY,
-            async_handle_import_energy_history,
+            _with_api_errors(async_handle_import_energy_history),
             schema=import_energy_history_schema,
         )
 
@@ -1512,50 +1130,51 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         """Handle recalculate_cost_history service call."""
         days = call.data.get("days", 365)
         room_name = call.data.get("room_name") or None
-
-        # Find room_id from name if provided
-        _entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-        _intuis_home = _entry_data.get("intuis_home")
-        room_id_filter: str | None = None
-        if room_name and _intuis_home:
-            for rid, room in _intuis_home.rooms.items():
-                if room.name.lower() == room_name.lower():
-                    room_id_filter = rid
-                    break
-            if room_id_filter is None:
-                _LOGGER.warning(
-                    "recalculate_cost_history: room '%s' not found", room_name
-                )
-                return
-
-        cost_updater = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("cost_stats_updater")
-        if cost_updater is None:
-            _LOGGER.warning(
-                "recalculate_cost_history: cost stats not enabled for this entry"
+        entries = [
+            (entry_id, data)
+            for entry_id, data in _get_target_entries(call.data.get(ATTR_HOME_ID))
+            if data.get("cost_stats_updater") is not None
+        ]
+        if not entries:
+            raise ServiceValidationError(
+                "Energy cost tracking is not enabled for the targeted home(s)"
             )
-            return
 
-        _LOGGER.info(
-            "recalculate_cost_history: starting (%d days, room=%s)",
-            days, room_id_filter or "all",
-        )
-        total = await cost_updater.async_recalculate_history(
-            days=days,
-            room_id_filter=room_id_filter,
-        )
-        cost_updater.publish_cost_base()
-        _LOGGER.info("recalculate_cost_history: wrote %d cost stat points", total)
+        for _entry_id, data in entries:
+            intuis_home: IntuisHome = data["intuis_home"]
+            cost_updater = data["cost_stats_updater"]
+            room_id_filter: str | None = None
+            if room_name:
+                room_id_filter = next(
+                    (rid for rid, room in intuis_home.rooms.items()
+                     if room.name.lower() == room_name.lower()),
+                    None,
+                )
+                if room_id_filter is None:
+                    raise ServiceValidationError(f"Room not found: {room_name}")
+
+            _LOGGER.info(
+                "recalculate_cost_history: starting for %s (%d days, room=%s)",
+                intuis_home.name or intuis_home.id, days, room_id_filter or "all",
+            )
+            total = await cost_updater.async_recalculate_history(
+                days=days,
+                room_id_filter=room_id_filter,
+            )
+            cost_updater.publish_cost_base()
+            _LOGGER.info("recalculate_cost_history: wrote %d cost stat points", total)
 
     recalculate_cost_schema = vol.Schema({
-        vol.Optional("days", default=365): vol.All(int, vol.Range(min=1, max=730)),
-        vol.Optional("room_name"): str,
+        vol.Optional("days", default=365): vol.All(vol.Coerce(int), vol.Range(min=1, max=730)),
+        vol.Optional("room_name"): cv.string,
+        vol.Optional(ATTR_HOME_ID): cv.string,
     })
 
     if not hass.services.has_service(DOMAIN, SERVICE_RECALCULATE_COST_HISTORY):
         hass.services.async_register(
             DOMAIN,
             SERVICE_RECALCULATE_COST_HISTORY,
-            async_handle_recalculate_cost_history,
+            _with_api_errors(async_handle_recalculate_cost_history),
             schema=recalculate_cost_schema,
         )
 

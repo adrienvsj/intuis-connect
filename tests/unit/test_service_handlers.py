@@ -61,7 +61,7 @@ async def services_setup(hass):
         "intuis_home": home,
         "coordinator": coordinator,
     }
-    await async_register_services(hass, entry)
+    await async_register_services(hass)
     return api, home
 
 
@@ -92,3 +92,46 @@ async def test_set_schedule_slot_with_schedule_card_payload(hass, services_setup
     # The local copy follows the synced timetable.
     local = {t.m_offset: t.zone_id for t in home.schedules[0].timetables}
     assert local == offsets
+
+
+async def test_unknown_home_and_cloud_errors_reach_the_caller(hass, services_setup):
+    """Validation errors and API errors are reported, not just logged."""
+    from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+
+    from custom_components.intuis_connect.intuis_api.api import APIError
+
+    api, _home = services_setup
+    payload = {"start_day": "0", "end_day": "0", "start_time": "12:00", "end_time": "14:00", "zone_name": "Night"}
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN, "set_schedule_slot", {**payload, "home_id": "unknown"}, blocking=True
+        )
+
+    api.async_sync_schedule.side_effect = APIError("500")
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call(DOMAIN, "set_schedule_slot", payload, blocking=True)
+    assert err.value.translation_key == "api_error"
+
+
+async def test_cost_recalculation_requires_cost_tracking(hass, services_setup):
+    from homeassistant.exceptions import ServiceValidationError
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(DOMAIN, "recalculate_cost_history", {}, blocking=True)
+
+
+def test_every_service_field_is_translated():
+    """services.yaml stays in sync with the en/fr translations."""
+    import json
+    from pathlib import Path
+
+    import yaml
+
+    root = Path(__file__).parents[2] / "custom_components" / "intuis_connect"
+    services = yaml.safe_load((root / "services.yaml").read_text())
+    for lang in ("en", "fr"):
+        translated = json.loads((root / "translations" / f"{lang}.json").read_text())["services"]
+        assert set(translated) == set(services), lang
+        for name, spec in services.items():
+            assert set(translated[name]["fields"]) == set(spec.get("fields", {})), (lang, name)

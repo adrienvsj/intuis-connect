@@ -412,7 +412,7 @@ async def async_import_energy_history(
         room_filter: Optional room name to import only that room.
         home_id: Home ID for building entity unique_ids.
         granularity: "hourly" for hourly stats (recommended) or "daily" for daily stats.
-        clear_existing: If True, delete existing statistics before importing.
+        clear_existing: Ignored (kept for compatibility with existing calls).
 
     Returns:
         Dict with import results: rooms_imported, total_energy, errors.
@@ -564,14 +564,12 @@ async def async_import_energy_history(
             # recorder thread pool (DbWorker_0/1/2) would race: pending INSERTs from the
             # previous room collide with the DELETE for the current room.
             #
-            # For full imports (clear_existing=True): start cumulative sum from 0.
-            # For partial imports (clear_existing=False): continue from existing baseline.
-            if clear_existing:
-                baseline_sum = 0.0
-            else:
-                baseline_sum = await _get_baseline_sum(
-                    hass, entity_id, room_name, import_start_time
-                )
+            # Always continue from the sum stored before the import window.
+            # clear_existing used to restart at 0 without deleting anything,
+            # which left a negative step against the older rows: it is ignored.
+            baseline_sum = await _get_baseline_sum(
+                hass, entity_id, room_name, import_start_time
+            )
 
             cumulative_sum = baseline_sum
 

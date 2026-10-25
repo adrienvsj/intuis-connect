@@ -24,80 +24,164 @@
   },
   "services": {
     "switch_schedule": {
-      "name": "Changer de programme",
-      "description": "Passe a un autre programme de chauffage. Le programme s'applique a toutes les pieces de la maison.",
+      "name": "Changer de planning",
+      "description": "Active un autre planning de chauffage pour toute la maison.",
       "fields": {
         "schedule_name": {
-          "name": "Nom du programme",
-          "description": "Le nom du programme a activer."
+          "name": "Nom du planning",
+          "description": "Nom du planning à activer, tel qu'affiché dans l'application Intuis."
+        },
+        "home_id": {
+          "name": "ID de la maison",
+          "description": "Seulement pour un compte à plusieurs maisons : la maison Intuis concernée."
         }
       }
     },
     "refresh_schedules": {
-      "name": "Rafraichir les programmes",
-      "description": "Force la mise a jour de toutes les donnees de programme et de la maison depuis l'API Intuis.",
+      "name": "Recharger les plannings",
+      "description": "Recharge les plannings depuis le cloud Intuis, par exemple après les avoir modifiés dans l'application.",
       "fields": {
         "home_id": {
           "name": "ID de la maison",
-          "description": "Cible une maison specifique (optionnel). Si non fourni, rafraichit toutes les maisons configurees."
+          "description": "Seulement pour un compte à plusieurs maisons : la maison Intuis concernée."
         }
       }
     },
     "set_schedule_slot": {
-      "name": "Definir un creneau horaire",
-      "description": "Definit une zone pour une plage horaire dans le programme de chauffage actif. Cree un creneau de l'heure de debut a l'heure de fin avec la zone specifiee.",
+      "name": "Définir un créneau",
+      "description": "Applique une zone entre deux moments de la semaine dans un planning ; la zone prévue avant est rétablie à l'heure de fin.",
       "fields": {
-        "day": {
-          "name": "Jour de la semaine",
-          "description": "Jour de la semaine pour le creneau horaire (0=Lundi, 6=Dimanche)."
+        "schedule_name": {
+          "name": "Nom du planning",
+          "description": "Planning à modifier. Par défaut, le planning actif."
+        },
+        "start_day": {
+          "name": "Jour de début",
+          "description": "Jour où commence le créneau."
         },
         "start_time": {
-          "name": "Heure de debut",
-          "description": "Quand la zone doit commencer (format HH:MM, 24 heures)."
+          "name": "Heure de début",
+          "description": "Heure où commence le créneau."
+        },
+        "end_day": {
+          "name": "Jour de fin",
+          "description": "Jour où se termine le créneau."
         },
         "end_time": {
           "name": "Heure de fin",
-          "description": "Quand la zone doit se terminer et revenir a la zone precedente (format HH:MM, 24 heures)."
+          "description": "Heure de fin (00:00 le jour de début signifie minuit à la fin de ce jour)."
         },
         "zone_name": {
-          "name": "Nom de la zone",
-          "description": "Le nom de la zone (ex: Nuit, Jour, Eco)."
+          "name": "Zone",
+          "description": "Zone à appliquer pendant le créneau, telle que nommée dans le planning."
+        },
+        "home_id": {
+          "name": "ID de la maison",
+          "description": "Seulement pour un compte à plusieurs maisons : la maison Intuis concernée."
+        }
+      }
+    },
+    "set_zone_temperature": {
+      "name": "Température d'une zone",
+      "description": "Change la température d'une pièce dans une zone d'un planning.",
+      "fields": {
+        "schedule_id": {
+          "name": "ID du planning",
+          "description": "Planning à modifier (prioritaire sur le nom)."
+        },
+        "schedule_name": {
+          "name": "Nom du planning",
+          "description": "Planning à modifier, si aucun ID n'est donné."
+        },
+        "zone_name": {
+          "name": "Zone",
+          "description": "Zone du planning."
+        },
+        "room_name": {
+          "name": "Pièce",
+          "description": "Pièce dont la température change."
+        },
+        "temperature": {
+          "name": "Température",
+          "description": "Nouvelle température de cette pièce dans cette zone."
+        },
+        "home_id": {
+          "name": "ID de la maison",
+          "description": "Seulement pour un compte à plusieurs maisons : la maison Intuis concernée."
+        }
+      }
+    },
+    "sync_schedule": {
+      "name": "Remplacer un planning",
+      "description": "Remplace toute la grille hebdomadaire d'un planning.",
+      "fields": {
+        "schedule_id": {
+          "name": "ID du planning",
+          "description": "Planning à remplacer (prioritaire sur le nom)."
+        },
+        "schedule_name": {
+          "name": "Nom du planning",
+          "description": "Planning à remplacer, si aucun ID n'est donné."
+        },
+        "timetable": {
+          "name": "Grille",
+          "description": "Liste JSON d'entrées avec zone_id et m_offset, m_offset étant le nombre de minutes depuis lundi 00:00."
+        },
+        "away_temp": {
+          "name": "Température absence",
+          "description": "Nouvelle température d'absence du planning (facultatif)."
+        },
+        "hg_temp": {
+          "name": "Température hors-gel",
+          "description": "Nouvelle température hors-gel du planning (facultatif)."
+        },
+        "home_id": {
+          "name": "ID de la maison",
+          "description": "Seulement pour un compte à plusieurs maisons : la maison Intuis concernée."
         }
       }
     },
     "import_energy_history": {
-      "name": "Importer l'historique energetique",
-      "description": "Importe les donnees historiques de consommation d'energie depuis le cloud Intuis vers les entites capteurs existantes. Les donnees apparaissent sur les memes capteurs d'energie utilises dans le tableau de bord Energie.",
+      "name": "Importer l'historique d'énergie",
+      "description": "Importe la consommation passée depuis le cloud Intuis dans les statistiques à long terme des capteurs d'énergie des pièces.",
       "fields": {
         "days": {
-          "name": "Jours a importer",
-          "description": "Nombre de jours d'historique a importer (1-730). Par defaut 365 jours."
+          "name": "Jours",
+          "description": "Nombre de jours à importer (jusqu'à 730)."
         },
         "granularity": {
           "name": "Granularité",
-          "description": "Choisir entre données horaires (recommandé pour le tableau de bord Énergie) ou journalières (import plus rapide)."
+          "description": "Valeurs horaires (recommandé pour le tableau Énergie) ou journalières."
         },
         "clear_existing": {
-          "name": "Effacer les statistiques existantes",
-          "description": "Supprime TOUTES les statistiques d'énergie existantes avant l'import. Requis lors du changement de granularité journalière vers horaire pour éviter les incohérences."
+          "name": "Effacer l'existant (ignoré)",
+          "description": "Conservé pour compatibilité : l'import repart toujours des statistiques déjà enregistrées."
         },
         "room_name": {
-          "name": "Piece",
-          "description": "Importer uniquement cette piece. Laisser vide pour toutes les pieces."
+          "name": "Pièce",
+          "description": "N'importer que cette pièce. Vide pour toutes les pièces."
+        },
+        "home_id": {
+          "name": "ID de la maison",
+          "description": "Seulement pour un compte à plusieurs maisons : la maison Intuis concernée."
         }
       }
     },
     "recalculate_cost_history": {
       "name": "Recalculer l'historique des coûts",
-      "description": "Recalcule les statistiques de coût énergétique à partir des statistiques kWh existantes et du prix configuré. Utile après un changement de prix ou l'activation initiale du calcul.",
+      "description": "Réécrit les statistiques de coût à partir des statistiques d'énergie, par exemple après un changement de prix.",
       "fields": {
         "days": {
           "name": "Jours",
-          "description": "Nombre de jours d'historique à recalculer (1-730). Par défaut 365 jours."
+          "description": "Nombre de jours à recalculer (jusqu'à 730)."
         },
         "room_name": {
           "name": "Pièce",
-          "description": "Recalculer uniquement cette pièce. Laisser vide pour toutes les pièces."
+          "description": "Seulement cette pièce. Vide pour toutes les pièces."
+        },
+        "home_id": {
+          "name": "ID de la maison",
+          "description": "Seulement pour un compte à plusieurs maisons : la maison Intuis concernée."
         }
       }
     }
@@ -287,6 +371,23 @@
       "options": {
         "fixed": "Prix fixe (€/kWh)",
         "entity": "Entité Home Assistant (prix dynamique)"
+      }
+    },
+    "day": {
+      "options": {
+        "0": "Lundi",
+        "1": "Mardi",
+        "2": "Mercredi",
+        "3": "Jeudi",
+        "4": "Vendredi",
+        "5": "Samedi",
+        "6": "Dimanche"
+      }
+    },
+    "granularity": {
+      "options": {
+        "hourly": "Horaire (recommandé)",
+        "daily": "Journalière"
       }
     }
   },

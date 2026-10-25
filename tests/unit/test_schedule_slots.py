@@ -85,7 +85,7 @@ async def services(hass):
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "api": api, "intuis_home": home, "coordinator": coordinator,
     }
-    await async_register_services(hass, entry)
+    await async_register_services(hass)
     return api, home
 
 

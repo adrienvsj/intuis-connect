@@ -113,9 +113,8 @@ def _entry(hass, **options) -> MockConfigEntry:
 async def test_setup_and_unload(hass, mock_api, no_http):
     """All platforms load from realistic payloads and the entry unloads cleanly."""
     entry = _entry(hass)
-    with patch("custom_components.intuis_connect.async_generate_services_yaml", AsyncMock()):
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.LOADED
     climates = hass.states.async_entity_ids("climate")
@@ -152,22 +151,21 @@ async def test_refused_token_starts_reauth(hass, mock_api, no_http):
 async def test_only_option_changes_reload(hass, mock_api, no_http):
     """Token updates and the history-import flag must not reload the entry."""
     entry = _entry(hass, import_history=True, import_history_days=0)
-    with patch("custom_components.intuis_connect.async_generate_services_yaml", AsyncMock()):
-        assert await hass.config_entries.async_setup(entry.entry_id)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload:
+        hass.config_entries.async_update_entry(entry, data={**entry.data, "refresh_token": "new"})
+        hass.config_entries.async_update_entry(entry, options={**entry.options, "import_history": False})
         await hass.async_block_till_done()
+        reload.assert_not_called()
 
-        with patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload:
-            hass.config_entries.async_update_entry(entry, data={**entry.data, "refresh_token": "new"})
-            hass.config_entries.async_update_entry(entry, options={**entry.options, "import_history": False})
-            await hass.async_block_till_done()
-            reload.assert_not_called()
-
-            hass.config_entries.async_update_entry(entry, options={**entry.options, "manual_duration": 60})
-            await hass.async_block_till_done()
-            reload.assert_awaited_once_with(entry.entry_id)
-
-        assert await hass.config_entries.async_unload(entry.entry_id)
+        hass.config_entries.async_update_entry(entry, options={**entry.options, "manual_duration": 60})
         await hass.async_block_till_done()
+        reload.assert_awaited_once_with(entry.entry_id)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
 
 
 async def test_schedule_devices_link_to_home(hass, mock_api, no_http):
@@ -175,9 +173,8 @@ async def test_schedule_devices_link_to_home(hass, mock_api, no_http):
     from homeassistant.helpers import device_registry as dr
 
     entry = _entry(hass)
-    with patch("custom_components.intuis_connect.async_generate_services_yaml", AsyncMock()):
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
     dev_reg = dr.async_get(hass)
     home = dev_reg.async_get_device_by_identifier((DOMAIN, f"{HOME_ID}_home"), entry.entry_id)
@@ -213,9 +210,8 @@ async def test_existing_installation_keeps_ids_and_cleans_devices(hass, mock_api
             device_id=legacy_device.id if domain == "sensor" else None,
         )
 
-    with patch("custom_components.intuis_connect.async_generate_services_yaml", AsyncMock()):
-        assert await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
 
     for (domain, unique_id), object_id in previous.items():
         assert ent_reg.async_get_entity_id(domain, DOMAIN, unique_id) == f"{domain}.{object_id}"

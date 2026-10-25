@@ -11,5 +11,28 @@
         }
       }
     }
+  },
+  "services": {
+    "switch_schedule": {
+      "service": "mdi:calendar-sync"
+    },
+    "refresh_schedules": {
+      "service": "mdi:refresh"
+    },
+    "set_schedule_slot": {
+      "service": "mdi:calendar-edit"
+    },
+    "set_zone_temperature": {
+      "service": "mdi:thermometer"
+    },
+    "sync_schedule": {
+      "service": "mdi:calendar-import"
+    },
+    "import_energy_history": {
+      "service": "mdi:history"
+    },
+    "recalculate_cost_history": {
+      "service": "mdi:cash-sync"
+    }
   }
 }

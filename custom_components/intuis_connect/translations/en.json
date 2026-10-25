@@ -24,80 +24,164 @@
   },
   "services": {
     "switch_schedule": {
-      "name": "Switch Schedule",
-      "description": "Switch to a different heating schedule. The schedule applies to all rooms in the home.",
+      "name": "Switch schedule",
+      "description": "Activates another heating schedule for the whole home.",
       "fields": {
         "schedule_name": {
-          "name": "Schedule Name",
-          "description": "The name of the schedule to activate."
+          "name": "Schedule name",
+          "description": "Name of the schedule to activate, as shown in the Intuis app."
+        },
+        "home_id": {
+          "name": "Home ID",
+          "description": "Only for accounts with several homes: the Intuis home to act on."
         }
       }
     },
     "refresh_schedules": {
-      "name": "Refresh Schedules",
-      "description": "Force a refresh of all schedule and home data from the Intuis API.",
+      "name": "Refresh schedules",
+      "description": "Reloads the schedules from the Intuis cloud, for example after editing them in the app.",
       "fields": {
         "home_id": {
           "name": "Home ID",
-          "description": "Target a specific home (optional). If not provided, refreshes all configured homes."
+          "description": "Only for accounts with several homes: the Intuis home to act on."
         }
       }
     },
     "set_schedule_slot": {
-      "name": "Set Schedule Slot",
-      "description": "Set a zone for a specific time range in the active heating schedule. Creates a slot from start_time to end_time with the specified zone.",
+      "name": "Set schedule slot",
+      "description": "Applies a zone between two times of the week in a schedule; the zone scheduled before is restored at the end time.",
       "fields": {
-        "day": {
-          "name": "Day of Week",
-          "description": "Day of the week for the time slot (0=Monday, 6=Sunday)."
+        "schedule_name": {
+          "name": "Schedule name",
+          "description": "Schedule to edit. Defaults to the active schedule."
+        },
+        "start_day": {
+          "name": "Start day",
+          "description": "Day the slot starts."
         },
         "start_time": {
-          "name": "Start Time",
-          "description": "When the zone should start (HH:MM format, 24-hour)."
+          "name": "Start time",
+          "description": "Time the slot starts."
+        },
+        "end_day": {
+          "name": "End day",
+          "description": "Day the slot ends."
         },
         "end_time": {
-          "name": "End Time",
-          "description": "When the zone should end and return to the previous zone (HH:MM format, 24-hour)."
+          "name": "End time",
+          "description": "Time the slot ends (00:00 on the start day means midnight at the end of that day)."
         },
         "zone_name": {
-          "name": "Zone Name",
-          "description": "The name of the zone (e.g., Night, Day, Eco)."
+          "name": "Zone",
+          "description": "Zone to apply during the slot, as named in the schedule."
+        },
+        "home_id": {
+          "name": "Home ID",
+          "description": "Only for accounts with several homes: the Intuis home to act on."
+        }
+      }
+    },
+    "set_zone_temperature": {
+      "name": "Set zone temperature",
+      "description": "Changes the temperature of one room in a zone of a schedule.",
+      "fields": {
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "Schedule to edit (takes precedence over the name)."
+        },
+        "schedule_name": {
+          "name": "Schedule name",
+          "description": "Schedule to edit, if no ID is given."
+        },
+        "zone_name": {
+          "name": "Zone",
+          "description": "Zone of the schedule."
+        },
+        "room_name": {
+          "name": "Room",
+          "description": "Room whose temperature changes."
+        },
+        "temperature": {
+          "name": "Temperature",
+          "description": "New temperature for this room in this zone."
+        },
+        "home_id": {
+          "name": "Home ID",
+          "description": "Only for accounts with several homes: the Intuis home to act on."
+        }
+      }
+    },
+    "sync_schedule": {
+      "name": "Sync schedule",
+      "description": "Replaces the whole weekly timetable of a schedule.",
+      "fields": {
+        "schedule_id": {
+          "name": "Schedule ID",
+          "description": "Schedule to replace (takes precedence over the name)."
+        },
+        "schedule_name": {
+          "name": "Schedule name",
+          "description": "Schedule to replace, if no ID is given."
+        },
+        "timetable": {
+          "name": "Timetable",
+          "description": "JSON list of entries with zone_id and m_offset, m_offset being minutes from Monday 00:00."
+        },
+        "away_temp": {
+          "name": "Away temperature",
+          "description": "Optional new away temperature for the schedule."
+        },
+        "hg_temp": {
+          "name": "Frost protection temperature",
+          "description": "Optional new frost protection temperature for the schedule."
+        },
+        "home_id": {
+          "name": "Home ID",
+          "description": "Only for accounts with several homes: the Intuis home to act on."
         }
       }
     },
     "import_energy_history": {
-      "name": "Import Energy History",
-      "description": "Import historical energy data from Intuis cloud to existing sensor entities. Data appears on the same energy sensor entities used in the Energy Dashboard.",
+      "name": "Import energy history",
+      "description": "Imports past energy consumption from the Intuis cloud into the long-term statistics of the room energy sensors.",
       "fields": {
         "days": {
-          "name": "Days to Import",
-          "description": "Number of days of history to import (1-730). Default is 365 days."
+          "name": "Days",
+          "description": "Number of days to import (up to 730)."
         },
         "granularity": {
           "name": "Granularity",
-          "description": "Choose between hourly data (recommended for Energy Dashboard) or daily data (faster import)."
+          "description": "Hourly values (recommended for the Energy dashboard) or daily values."
         },
         "clear_existing": {
-          "name": "Clear existing statistics",
-          "description": "Delete ALL existing energy statistics before import. Required when changing from daily to hourly granularity to avoid data inconsistencies."
+          "name": "Clear existing (ignored)",
+          "description": "Kept for compatibility: the import always continues from the statistics already stored."
         },
         "room_name": {
           "name": "Room",
           "description": "Import only this room. Leave empty for all rooms."
+        },
+        "home_id": {
+          "name": "Home ID",
+          "description": "Only for accounts with several homes: the Intuis home to act on."
         }
       }
     },
     "recalculate_cost_history": {
-      "name": "Recalculate Cost History",
-      "description": "Recalculates energy cost statistics from existing kWh statistics and the configured price. Useful after a price change or initial cost calculation activation.",
+      "name": "Recalculate cost history",
+      "description": "Rewrites the energy cost statistics from the energy statistics, for example after a price change.",
       "fields": {
         "days": {
           "name": "Days",
-          "description": "Number of history days to recalculate (1-730). Default 365 days."
+          "description": "Number of days to recalculate (up to 730)."
         },
         "room_name": {
           "name": "Room",
-          "description": "Recalculate only this room. Leave empty for all rooms."
+          "description": "Only this room. Leave empty for all rooms."
+        },
+        "home_id": {
+          "name": "Home ID",
+          "description": "Only for accounts with several homes: the Intuis home to act on."
         }
       }
     }
@@ -287,6 +371,23 @@
       "options": {
         "fixed": "Fixed price (€/kWh)",
         "entity": "Home Assistant entity (dynamic price)"
+      }
+    },
+    "day": {
+      "options": {
+        "0": "Monday",
+        "1": "Tuesday",
+        "2": "Wednesday",
+        "3": "Thursday",
+        "4": "Friday",
+        "5": "Saturday",
+        "6": "Sunday"
+      }
+    },
+    "granularity": {
+      "options": {
+        "hourly": "Hourly (recommended)",
+        "daily": "Daily"
       }
     }
   },

@@ -34,6 +34,17 @@ async def async_setup_entry(
     api: IntuisAPI = data["api"]
     intuis_home = data["intuis_home"]
 
+    # Platforms are set up in parallel: register the home device now so the
+    # schedule devices can always be linked to it (same fields as the home
+    # sensors' device info).
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"{intuis_home.id}_home")},
+        name="Intuis Home",
+        manufacturer="Muller Intuitiv (Netatmo)",
+        model="Home Controller",
+    )
+
     # Track current entities for dynamic management
     current_entity_ids: set[str] = set()
 

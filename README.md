@@ -21,8 +21,18 @@ whose last release is `2.0.0-beta` (March 2026). Version **2.1.0** brings togeth
   instead of permanent errors during cloud outages, and tests that run on a
   real Home Assistant instance.
 
+Version **2.2.0** aligns the integration with current Home Assistant
+practices: static and translated actions (services) that report their errors,
+one-time service registration, diagnostics, translated errors for climate
+commands, climate on/off, cleaner device and entity names (entity IDs are
+unchanged), a safe cost-entity migration, multi-home fixes, and an
+up-to-date CI (tests on Python 3.14, hassfest, HACS validation).
+
 Issues and pull requests are welcome on
 [this repository](https://github.com/adrienvsj/intuis-connect/issues).
+When reporting a problem, attach the integration diagnostics
+(**Settings → Devices & services → Intuis Connect → ⋮ → Download diagnostics**):
+credentials, email and location are removed from it.
 
 ---
 
@@ -45,7 +55,7 @@ Issues and pull requests are welcome on
 
 ## Installation
 
-> **Developed and tested with Home Assistant 2026.10.** Install it through HACS as a custom repository.
+> **Requires Home Assistant 2026.10 or later** (the version the tests run on). Install it through HACS as a custom repository.
 
 ### One-Click Install (Recommended)
 
@@ -145,6 +155,12 @@ The entity also exposes `pilot_wire_order` (`comfort`, `away` = eco, `frost_guar
 
 ## Services
 
+All actions accept an optional `home_id` for accounts with several homes.
+Schedule, zone and room names are typed as text and checked against your
+home's current data when the action runs; an unknown name or an Intuis cloud
+error is reported to the caller (for example the schedule card) instead of
+being silently ignored.
+
 ### `intuis_connect.switch_schedule`
 
 Switch to a different heating schedule.
@@ -208,8 +224,12 @@ Import historical energy data from the Intuis cloud into HA Long-Term Statistics
 service: intuis_connect.import_energy_history
 data:
   days: 365
-  granularity: "1hour"   # or "1day"
+  granularity: "hourly"   # or "daily"
 ```
+
+The import always continues from the statistics already stored;
+`clear_existing` is still accepted but ignored (it never deleted anything and
+used to restart the totals at zero).
 
 ### `intuis_connect.recalculate_cost_history`
 

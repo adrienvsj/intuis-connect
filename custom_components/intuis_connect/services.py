@@ -13,6 +13,8 @@ import voluptuous as vol
 import yaml
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import (
     BooleanSelector,
     NumberSelector,
@@ -39,10 +41,8 @@ from .entity.intuis_home import IntuisHome
 from .entity.intuis_schedule import IntuisThermSchedule, IntuisThermZone, IntuisTimetable
 from .intuis_api.api import IntuisAPI, APIError, CannotConnect, RateLimitError
 from .timetable import (
-    find_zone_at_offset,
-    upsert_timetable_entry,
+    apply_slot,
     remove_consecutive_duplicates,
-    normalize_timetable,
     DAYS_OF_WEEK,
     DAYS_OF_WEEK_LABELS,
     MINUTES_PER_DAY,
@@ -581,27 +581,26 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         zone_name = call.data.get(ATTR_ZONE_NAME)
         target_home_id = call.data.get(ATTR_HOME_ID)
 
+        # Errors are raised, not only logged, so callers such as the schedule
+        # card can tell the user that nothing was changed.
         if not zone_name:
-            _LOGGER.error("zone_name must be provided")
-            return
+            raise ServiceValidationError("zone_name must be provided")
 
         # Convert start_day from string to int
         try:
             start_day = int(start_day_str)
             if not (0 <= start_day <= 6):
                 raise ValueError("start_day must be between 0 and 6")
-        except (ValueError, TypeError):
-            _LOGGER.error("Invalid start_day value: %s (expected 0-6)", start_day_str)
-            return
+        except (ValueError, TypeError) as err:
+            raise ServiceValidationError(f"Invalid start_day value: {start_day_str} (expected 0-6)") from err
 
         # Convert end_day from string to int
         try:
             end_day = int(end_day_str)
             if not (0 <= end_day <= 6):
                 raise ValueError("end_day must be between 0 and 6")
-        except (ValueError, TypeError):
-            _LOGGER.error("Invalid end_day value: %s (expected 0-6)", end_day_str)
-            return
+        except (ValueError, TypeError) as err:
+            raise ServiceValidationError(f"Invalid end_day value: {end_day_str} (expected 0-6)") from err
 
         # Parse start_time (TimeSelector returns HH:MM:SS string or dict)
         try:
@@ -616,8 +615,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             if not (0 <= start_hours <= 23 and 0 <= start_minutes <= 59):
                 raise ValueError("Invalid start time")
         except (ValueError, AttributeError, TypeError) as e:
-            _LOGGER.error("Invalid start_time format: %s (%s)", start_time, e)
-            return
+            raise ServiceValidationError(f"Invalid start_time format: {start_time} ({e})") from e
 
         # Parse end_time (TimeSelector returns HH:MM:SS string or dict)
         # Special case: 00:00 means end of day (midnight)
@@ -633,8 +631,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             if not (0 <= end_hours <= 23 and 0 <= end_minutes <= 59):
                 raise ValueError("Invalid end time")
         except (ValueError, AttributeError, TypeError) as e:
-            _LOGGER.error("Invalid end_time format: %s (%s)", end_time, e)
-            return
+            raise ServiceValidationError(f"Invalid end_time format: {end_time} ({e})") from e
 
         # Calculate m_offsets (minutes from Monday 00:00)
         start_m_offset = start_day * MINUTES_PER_DAY + start_hours * 60 + start_minutes
@@ -652,21 +649,16 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         # Validate that end is after start (considering week wrap)
         # For multi-day spans, end_m_offset might be less if wrapping around the week
         if start_day == end_day and end_m_offset <= start_m_offset:
-            _LOGGER.error(
-                "end_time (%s) must be after start_time (%s) on the same day",
-                end_time,
-                start_time,
+            raise ServiceValidationError(
+                f"end_time ({end_time}) must be after start_time ({start_time}) on the same day"
             )
-            return
 
         entries = _get_target_entries(target_home_id)
 
         if not entries:
             if target_home_id:
-                _LOGGER.error("Home with ID %s not found", target_home_id)
-            else:
-                _LOGGER.error("No configured homes found")
-            return
+                raise ServiceValidationError(f"Home with ID {target_home_id} not found")
+            raise ServiceValidationError("No configured homes found")
 
         # Warn if multiple homes and no home_id specified
         if len(entries) > 1 and not target_home_id:
@@ -708,14 +700,10 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
 
         if not target_schedule:
             if schedule_name:
-                _LOGGER.error(
-                    "Schedule not found: %s. Available schedules: %s",
-                    schedule_name,
-                    available_schedules,
+                raise ServiceValidationError(
+                    f"Schedule not found: {schedule_name}. Available schedules: {available_schedules}"
                 )
-            else:
-                _LOGGER.error("No active therm schedule found. Available: %s", available_schedules)
-            return
+            raise ServiceValidationError(f"No active therm schedule found. Available: {available_schedules}")
 
         # Find the target zone by name
         target_zone = None
@@ -728,12 +716,9 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                     break
 
         if not target_zone:
-            _LOGGER.error(
-                "Zone not found: %s. Available zones: %s",
-                zone_name,
-                available_zones,
+            raise ServiceValidationError(
+                f"Zone not found: {zone_name}. Available zones: {available_zones}"
             )
-            return
 
         if start_day == end_day:
             _LOGGER.info(
@@ -765,30 +750,13 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
 
         # Validate timetable is not empty
         if not timetable:
-            _LOGGER.error(
-                "Schedule '%s' has no timetable entries. Cannot set slot.",
-                target_schedule.name,
-            )
-            return
-
-        # Find which zone is active at end_time (to restore after the slot ends)
-        # We look at end_m_offset to find what zone was scheduled there originally
-        restore_zone_id = find_zone_at_offset(timetable, end_m_offset)
-
-        # If no zone found at end offset (edge case), use the first zone as fallback
-        if restore_zone_id is None and target_schedule.zones:
-            restore_zone_id = target_schedule.zones[0].id
-            _LOGGER.debug(
-                "No zone found at end offset %d, using first zone (ID: %d) as fallback",
-                end_m_offset,
-                restore_zone_id,
+            raise ServiceValidationError(
+                f"Schedule '{target_schedule.name}' has no timetable entries. Cannot set slot."
             )
 
-        # Insert/update start entry with target zone
-        upsert_timetable_entry(timetable, start_m_offset, target_zone.id)
-
-        # Insert/update end entry to restore previous zone
-        upsert_timetable_entry(timetable, end_m_offset, restore_zone_id)
+        # Replace everything inside the slot with the target zone and restore,
+        # at the slot end, the zone that was scheduled there (wraps the week).
+        timetable = apply_slot(timetable, start_m_offset, end_m_offset, target_zone.id)
 
         # Sort and remove consecutive duplicates (API requirement)
         timetable = remove_consecutive_duplicates(timetable)
@@ -1382,22 +1350,17 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
     ]
 
     # Build dynamic schemas with SelectSelector for proper dropdown UI
+    # Schedule, zone and room names are validated by the handlers against the
+    # live data: options captured here would reject zones of a schedule
+    # activated later. The UI dropdowns come from services.yaml.
     switch_schedule_schema = vol.Schema({
-        vol.Required(ATTR_SCHEDULE_NAME): SelectSelector(
-            SelectSelectorConfig(
-                options=schedule_options if schedule_options else [{"value": "", "label": "No schedules found"}],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
+        vol.Required(ATTR_SCHEDULE_NAME): cv.string,
+        vol.Optional(ATTR_HOME_ID): cv.string,
     })
 
     set_schedule_slot_schema = vol.Schema({
-        vol.Optional(ATTR_SCHEDULE_NAME): SelectSelector(
-            SelectSelectorConfig(
-                options=schedule_options if schedule_options else [{"value": "", "label": "No schedules found"}],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
+        vol.Optional(ATTR_SCHEDULE_NAME): cv.string,
+        vol.Optional(ATTR_HOME_ID): cv.string,
         vol.Required(ATTR_START_DAY): SelectSelector(
             SelectSelectorConfig(
                 options=day_options,
@@ -1412,12 +1375,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             )
         ),
         vol.Required(ATTR_END_TIME): TimeSelector(TimeSelectorConfig()),
-        vol.Required(ATTR_ZONE_NAME): SelectSelector(
-            SelectSelectorConfig(
-                options=zone_options if zone_options else [{"value": "", "label": "No zones found"}],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
+        vol.Required(ATTR_ZONE_NAME): cv.string,
     })
 
     set_zone_temperature_schema = vol.Schema({
@@ -1426,24 +1384,10 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 type=TextSelectorType.TEXT,
             )
         ),
-        vol.Optional(ATTR_SCHEDULE_NAME): SelectSelector(
-            SelectSelectorConfig(
-                options=schedule_options if schedule_options else [{"value": "", "label": "No schedules found"}],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
-        vol.Required(ATTR_ZONE_NAME): SelectSelector(
-            SelectSelectorConfig(
-                options=all_zone_options if all_zone_options else [{"value": "", "label": "No zones found"}],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
-        vol.Required(ATTR_ROOM_NAME): SelectSelector(
-            SelectSelectorConfig(
-                options=room_options if room_options else [{"value": "", "label": "No rooms found"}],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
+        vol.Optional(ATTR_SCHEDULE_NAME): cv.string,
+        vol.Optional(ATTR_HOME_ID): cv.string,
+        vol.Required(ATTR_ZONE_NAME): cv.string,
+        vol.Required(ATTR_ROOM_NAME): cv.string,
         vol.Required(ATTR_TEMPERATURE): NumberSelector(
             NumberSelectorConfig(
                 min=5,
@@ -1461,12 +1405,8 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
                 type=TextSelectorType.TEXT,
             )
         ),
-        vol.Optional(ATTR_SCHEDULE_NAME): SelectSelector(
-            SelectSelectorConfig(
-                options=schedule_options if schedule_options else [{"value": "", "label": "No schedules found"}],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
+        vol.Optional(ATTR_SCHEDULE_NAME): cv.string,
+        vol.Optional(ATTR_HOME_ID): cv.string,
         vol.Required(ATTR_TIMETABLE): TextSelector(
             TextSelectorConfig(
                 multiline=True,
@@ -1480,9 +1420,6 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             NumberSelectorConfig(min=5, max=15, step=0.5, unit_of_measurement="°C")
         ),
     })
-
-    # Add "All rooms" option to room_options for import service
-    import_room_options = [{"value": "", "label": "All rooms"}] + room_options
 
     # Granularity options for import
     granularity_options = [
@@ -1506,12 +1443,8 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             )
         ),
         vol.Optional(ATTR_CLEAR_EXISTING, default=False): BooleanSelector(),
-        vol.Optional(ATTR_ROOM_NAME): SelectSelector(
-            SelectSelectorConfig(
-                options=import_room_options if import_room_options else [{"value": "", "label": "All rooms"}],
-                mode=SelectSelectorMode.DROPDOWN,
-            )
-        ),
+        vol.Optional(ATTR_ROOM_NAME): cv.string,
+        vol.Optional(ATTR_HOME_ID): cv.string,
     })
 
     # Register services (only once)
@@ -1599,7 +1532,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
             days=days,
             room_id_filter=room_id_filter,
         )
-        cost_updater._publish_cost_base()
+        cost_updater.publish_cost_base()
         _LOGGER.info("recalculate_cost_history: wrote %d cost stat points", total)
 
     recalculate_cost_schema = vol.Schema({

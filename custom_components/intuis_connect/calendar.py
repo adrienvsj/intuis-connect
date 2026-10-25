@@ -170,7 +170,9 @@ class IntuisScheduleCalendar(
                 end=end_dt,
                 summary=f"{zone.name}",
                 description=f"Zone: {zone.name}\nTemperatures: {temp_str}",
-                uid=f"{schedule.id}_{timetable.m_offset}_{timetable.zone_id}",
+                # The week is part of the uid: without it, events of later
+                # weeks were dropped as duplicates of the first week's.
+                uid=f"{schedule.id}_{week_start.date().isoformat()}_{timetable.m_offset}_{timetable.zone_id}",
             )
             events.append(event)
 

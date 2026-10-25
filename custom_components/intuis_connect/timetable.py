@@ -13,6 +13,7 @@ _LOGGER = logging.getLogger(__name__)
 DAYS_OF_WEEK = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
 DAYS_OF_WEEK_LABELS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 MINUTES_PER_DAY = 1440
+MINUTES_PER_WEEK = 7 * MINUTES_PER_DAY
 
 
 def find_zone_at_offset(timetable: list[dict], m_offset: int) -> int:
@@ -63,6 +64,42 @@ def upsert_timetable_entry(timetable: list[dict], m_offset: int, zone_id: int) -
             entry["zone_id"] = zone_id
             return
     timetable.append({"zone_id": zone_id, "m_offset": m_offset})
+
+
+def apply_slot(timetable: list[dict], start: int, end: int, zone_id: int) -> list[dict]:
+    """Return a timetable where [start, end) uses zone_id, the rest unchanged.
+
+    Entries inside the slot are removed (they would otherwise cut it short),
+    and the zone originally scheduled at ``end`` is restored there. Offsets
+    are taken modulo one week, so a slot may run over Sunday midnight;
+    ``start == end`` (after the modulo) means the whole week.
+
+    Args:
+        timetable: Entries with 'm_offset' and 'zone_id' keys (not modified).
+        start: Slot start, minutes from Monday 00:00.
+        end: Slot end (exclusive), minutes from Monday 00:00; may be 10080.
+        zone_id: Zone to apply during the slot.
+    """
+    start %= MINUTES_PER_WEEK
+    end %= MINUTES_PER_WEEK
+    if start == end:
+        return [{"zone_id": zone_id, "m_offset": 0}]
+
+    restore_zone_id = find_zone_at_offset(timetable, end)
+    wraps = start > end
+
+    def inside(m_offset: int) -> bool:
+        if wraps:
+            return m_offset > start or m_offset < end
+        return start < m_offset < end
+
+    result = [dict(e) for e in timetable if not inside(e["m_offset"])]
+    upsert_timetable_entry(result, start, zone_id)
+    upsert_timetable_entry(result, end, restore_zone_id)
+    if wraps and end != 0:
+        # The slot covers Monday 00:00, where every week must start
+        upsert_timetable_entry(result, 0, zone_id)
+    return sorted(result, key=lambda e: e["m_offset"])
 
 
 def remove_consecutive_duplicates(timetable: list[dict]) -> list[dict]:

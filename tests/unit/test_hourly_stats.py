@@ -166,3 +166,26 @@ def test_complete_hours_dedups_without_summing():
         [(start + 3600, 50), (start, 30), (start + 1800, 40), (start + 4 * 3600, 99)], end_ms
     )
     assert points == [(start + 1800, 40), (start + 3600, 50)]
+
+
+async def test_dst_fall_back_day_has_25_continuous_hours(setup, freezer):
+    """25 Oct 2026 (Europe/Paris) has 25 hours: all are imported, sums stay continuous."""
+    hass, updater, _api, entity_id = setup
+    await _seed(hass, entity_id, [(_local(2026, 10, 24, 23), 100.0)])
+    freezer.move_to(_local(2026, 10, 26, 12, 30))
+
+    await updater.async_update()
+    await async_wait_recording_done(hass)
+
+    # Keyed by UTC timestamp: the two local 02:00 starts compare equal as
+    # aware datetimes (fold is ignored), so they must not be dict keys.
+    stats = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, _local(2026, 10, 25), _local(2026, 10, 26),
+        {entity_id}, "hour", None, {"sum"},
+    )
+    rows = stats[entity_id]
+    assert len(rows) == 25
+    values = [round(row["sum"], 3) for row in rows]
+    assert values[0] == 100.1
+    assert all(round(b - a, 3) == 0.1 for a, b in zip(values, values[1:]))
+    assert updater._data["midnight_bases"][entity_id]["2026-10-26"] == 102.5

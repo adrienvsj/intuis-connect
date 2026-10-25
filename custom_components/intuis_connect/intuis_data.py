@@ -132,7 +132,8 @@ class IntuisData:
         try:
             home = await self._api.async_get_home_status()
         except (APIError, CannotConnect, RateLimitError) as err:
-            _LOGGER.error("Failed to fetch home status from API: %s", err)
+            # Logged by the coordinator as UpdateFailed
+            _LOGGER.debug("Failed to fetch home status from API: %s", err)
             raise
 
         try:

@@ -8,7 +8,7 @@ from homeassistant.components.number import NumberEntity, NumberDeviceClass, Num
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -221,13 +221,24 @@ class IntuisZoneTemperatureNumber(CoordinatorEntity[IntuisDataUpdateCoordinator]
         """Return device info - grouped by schedule with dynamic name."""
         schedule = self._get_schedule()
         schedule_name = schedule.name if schedule else self._schedule_id[-6:]
-        return DeviceInfo(
+        info = DeviceInfo(
             identifiers={(DOMAIN, f"{self._home_id}_schedule_{self._schedule_id}")},
             name=f"Schedule {schedule_name}",
             manufacturer="Muller Intuitiv (Netatmo)",
             model="Heating Schedule",
-            via_device=(DOMAIN, f"{self._home_id}_home"),
         )
+        # Home Assistant 2026.8+ links devices by device id; the identifier-based
+        # `via_device` is deprecated there and stops working in 2027.8.
+        home_identifier = (DOMAIN, f"{self._home_id}_home")
+        registry = dr.async_get(self.hass) if self.hass else None
+        get_by_identifier = getattr(registry, "async_get_device_by_identifier", None)
+        if get_by_identifier is None:
+            info["via_device"] = home_identifier
+        elif self.coordinator.config_entry and (
+            home_device := get_by_identifier(home_identifier, self.coordinator.config_entry.entry_id)
+        ):
+            info["via_device_id"] = home_device.id
+        return info
 
     @property
     def native_value(self) -> float | None:

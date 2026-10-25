@@ -35,7 +35,7 @@ async def async_validate_api(
         raise
     except aiohttp.ClientError as e:
         _LOGGER.exception("Unknown error during API validation")
-        raise InvalidAuth("unknown") from e
+        raise CannotConnect("unknown") from e
 
 
 def get_coordinator(hass, entry) -> IntuisDataUpdateCoordinator:

@@ -10,13 +10,13 @@ from pathlib import Path
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.helpers.storage import Store
 
-from .intuis_api.api import IntuisAPI, InvalidAuth, CannotConnect, APIError
+from .intuis_api.api import IntuisAPI, InvalidAuth, CannotConnect, APIError, RateLimitError
 from .utils.const import (
     DOMAIN,
     CONF_REFRESH_TOKEN,
@@ -86,8 +86,24 @@ PLATFORMS: list[Platform] = [
 ]
 
 
+# One-shot flags cleared by the integration itself: changing them must not reload
+# the entry (a reload would cancel the history import that just started).
+_OPTIONS_IGNORED_FOR_RELOAD = (CONF_IMPORT_HISTORY, CONF_IMPORT_HISTORY_DAYS)
+# hass.data[DOMAIN] key holding, per entry, the options the entry was set up with
+_OPTIONS_SNAPSHOTS = "_options_snapshots"
+
+
+def _options_for_reload(options) -> dict:
+    """Return the options whose change requires a reload."""
+    return {k: v for k, v in options.items() if k not in _OPTIONS_IGNORED_FOR_RELOAD}
+
+
 async def update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update."""
+    """Reload the entry when its options change (data-only updates are ignored)."""
+    snapshot = hass.data.get(DOMAIN, {}).get(_OPTIONS_SNAPSHOTS, {}).get(entry.entry_id)
+    if snapshot is not None and _options_for_reload(entry.options) == _options_for_reload(snapshot):
+        _LOGGER.debug("Entry %s updated without option changes, not reloading", entry.entry_id)
+        return
     _LOGGER.debug("Reloading entry %s due to options update", entry.entry_id)
     await hass.config_entries.async_reload(entry.entry_id)
 
@@ -240,6 +256,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Intuis Connect from a config entry."""
     _LOGGER.debug("Setting up entry %s", entry.entry_id)
     hass.data.setdefault(DOMAIN, {})
+    # Taken before anything can update the entry (e.g. a renewed refresh token)
+    hass.data[DOMAIN].setdefault(_OPTIONS_SNAPSHOTS, {})[entry.entry_id] = dict(entry.options)
     entry.async_on_unload(entry.add_update_listener(update_listener))
 
     # ---------- setup API ----------------------------------------------------------
@@ -260,14 +278,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
     intuis_api.refresh_token = entry.data[CONF_REFRESH_TOKEN]
 
+    @callback
+    def _persist_refresh_token(token: str) -> None:
+        """Store a renewed refresh token so the next start does not use a stale one."""
+        if entry.data.get(CONF_REFRESH_TOKEN) != token:
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, CONF_REFRESH_TOKEN: token}
+            )
+
+    intuis_api.set_refresh_token_callback(_persist_refresh_token)
+
     try:
         await intuis_api.async_refresh_access_token()
+        intuis_home = await intuis_api.async_get_homes_data()
     except InvalidAuth as err:
         raise ConfigEntryAuthFailed from err
-    except CannotConnect as err:
-        raise ConfigEntryNotReady from err
-
-    intuis_home = await intuis_api.async_get_homes_data()
+    except (CannotConnect, APIError, RateLimitError) as err:
+        # Cloud outage or rate limit: Home Assistant retries the setup later
+        raise ConfigEntryNotReady(str(err)) from err
     _LOGGER.debug("Intuis home: %s", intuis_home.__str__())
 
     # ---------- generate dynamic services.yaml -------------------------------------
@@ -303,11 +331,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         save_overrides_callback=save_overrides,
     )
 
+    async def _async_update_data() -> dict:
+        """Map API errors to the coordinator's expected exceptions."""
+        try:
+            return await intuis_data.async_update()
+        except InvalidAuth as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except (APIError, CannotConnect, RateLimitError) as err:
+            raise UpdateFailed(str(err)) from err
+
     coordinator: IntuisDataUpdateCoordinator = DataUpdateCoordinator(
         hass,
         _LOGGER,
+        config_entry=entry,
         name=DOMAIN,
-        update_method=intuis_data.async_update,
+        update_method=_async_update_data,
         update_interval=datetime.timedelta(minutes=DEFAULT_UPDATE_INTERVAL),
     )
 
@@ -492,6 +530,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data[DOMAIN].get(_OPTIONS_SNAPSHOTS, {}).pop(entry.entry_id, None)
         _LOGGER.debug("Unloaded entry %s", entry.entry_id)
     return unload_ok
 

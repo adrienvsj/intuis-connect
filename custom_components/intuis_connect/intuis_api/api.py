@@ -58,6 +58,11 @@ class RateLimitError(Exception):
     """Rate limit (429) error with circuit breaker open."""
 
 
+# OAuth answers meaning the credentials or the refresh token were refused
+# (Netatmo answers 400 "invalid_grant" for a wrong password or a revoked token)
+AUTH_REJECTED_STATUSES = (400, 401, 403)
+
+
 class RateLimitCircuitBreaker:
     """Prevents request storms when rate limited.
 
@@ -205,6 +210,10 @@ class IntuisAPI:
         self._refresh_token: str | None = None
         self._expiry: float | None = None
         self._debug: bool = debug
+        # One token refresh at a time: concurrent refreshes would race on the
+        # refresh token, which the server may rotate.
+        self._refresh_lock = asyncio.Lock()
+        self._refresh_token_callback: Callable[[str], None] | None = None
 
         # Rate limiting configuration
         self._rate_limit_delay = rate_limit_delay
@@ -240,6 +249,10 @@ class IntuisAPI:
         """Set callback to invoke when rate limited."""
         self._circuit_breaker.set_rate_limit_callback(callback)
 
+    def set_refresh_token_callback(self, callback: Callable[[str], None]) -> None:
+        """Set callback invoked with the new refresh token whenever it changes."""
+        self._refresh_token_callback = callback
+
     # ---------- internal helpers ------------------------------------------------
     async def _ensure_token(self) -> None:
         """Ensure the access token is valid, refreshing it if necessary."""
@@ -260,8 +273,16 @@ class IntuisAPI:
         if self._debug:
             _LOGGER.debug("Saving tokens, expires in %s seconds", data.get("expires_in"))
         self._access_token = data["access_token"]
-        self._refresh_token = data.get("refresh_token")
+        previous_refresh_token = self._refresh_token
+        # Keep the current refresh token if the response does not carry a new one
+        self._refresh_token = data.get("refresh_token") or previous_refresh_token
         self._expiry = asyncio.get_running_loop().time() + data.get("expires_in", 10800)
+        if (
+            self._refresh_token_callback
+            and self._refresh_token
+            and self._refresh_token != previous_refresh_token
+        ):
+            self._refresh_token_callback(self._refresh_token)
 
     async def _async_request(
             self, method: str, path: str, retry: bool = True,
@@ -300,8 +321,9 @@ class IntuisAPI:
         await self._throttler.acquire()
 
         await self._ensure_token()
-        headers = kwargs.pop("headers", {})
-        headers["Authorization"] = f"Bearer {self._access_token}"
+        extra_headers = dict(kwargs.pop("headers", None) or {})
+        token_used = self._access_token
+        headers = {**extra_headers, "Authorization": f"Bearer {token_used}"}
 
         url = full_url if full_url else f"{self._base_url}{path}"
         if self._debug:
@@ -326,12 +348,18 @@ class IntuisAPI:
                 )
 
                 # Handle token refresh on 401 once (without counting towards attempts)
-                if resp.status == 401 and retry:
+                if resp.status == 401:
+                    await resp.release()
+                    if not retry:
+                        raise InvalidAuth(f"Unauthorized for {path} after a token refresh")
                     _LOGGER.warning(
                         "Request unauthorized (401), refreshing token and retrying."
                     )
-                    await self.async_refresh_access_token()
-                    return await self._async_request(method, path, retry=False, **kwargs)
+                    await self.async_refresh_access_token(failed_access_token=token_used)
+                    return await self._async_request(
+                        method, path, retry=False, full_url=full_url,
+                        headers=extra_headers, timeout=timeout, **kwargs
+                    )
 
                 # Handle rate limiting (429) separately
                 if resp.status == 429:
@@ -462,6 +490,10 @@ class IntuisAPI:
             "user_prefix": USER_PREFIX,
             "app_version": APP_VERSION,
         }
+        # A wrong password is only reported as such when every cluster answered;
+        # if one of them could not be reached the account may live there.
+        auth_rejected = False
+        connection_failed = False
         for base in BASE_URLS:
             try:
                 if self._debug:
@@ -473,6 +505,10 @@ class IntuisAPI:
                         _LOGGER.warning(
                             "Login failed on %s status %s", base, resp.status
                         )
+                        if resp.status in AUTH_REJECTED_STATUSES:
+                            auth_rejected = True
+                        else:
+                            connection_failed = True
                         continue
                     data = await resp.json()
                     if "access_token" in data:
@@ -487,8 +523,12 @@ class IntuisAPI:
                         )
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
                 _LOGGER.warning("Client error during login on %s: %s", base, e)
+                connection_failed = True
                 continue
         else:
+            if auth_rejected and not connection_failed:
+                _LOGGER.error("Login refused: invalid username or password")
+                raise InvalidAuth("Invalid username or password")
             _LOGGER.error("Unable to log in on any cluster")
             raise CannotConnect("Unable to log in on any cluster")
 
@@ -503,8 +543,33 @@ class IntuisAPI:
             _LOGGER.debug("Login completed, found %d homes", len(homes))
         return homes
 
-    async def async_refresh_access_token(self) -> None:
-        """Refresh the access token."""
+    async def async_refresh_access_token(self, failed_access_token: str | None = None) -> None:
+        """Refresh the access token.
+
+        Raises InvalidAuth only when the server refuses the refresh token;
+        network errors, rate limits and server errors raise CannotConnect so
+        callers retry instead of asking the user to log in again.
+
+        Args:
+            failed_access_token: The token a request was refused with. If another
+                caller already replaced it, no new refresh is made.
+        """
+        async with self._refresh_lock:
+            if failed_access_token is not None and self._access_token != failed_access_token:
+                _LOGGER.debug("Access token already refreshed by another request")
+                return
+            if (
+                failed_access_token is None
+                and self._access_token is not None
+                and self._expiry
+                and asyncio.get_running_loop().time() < self._expiry - 60
+            ):
+                _LOGGER.debug("Access token refreshed while waiting, nothing to do")
+                return
+            await self._async_refresh_access_token_locked()
+
+    async def _async_refresh_access_token_locked(self) -> None:
+        """Send the refresh request (caller holds the refresh lock)."""
         if self._debug:
             # Mask token for security - only show last 4 chars
             masked_token = f"***{self._refresh_token[-4:]}" if self._refresh_token else "None"
@@ -519,18 +584,27 @@ class IntuisAPI:
             "client_secret": CLIENT_SECRET,
             "user_prefix": USER_PREFIX,
         }
-        async with self._session.post(
-                f"{self._base_url}{AUTH_PATH}", data=payload, timeout=10
-        ) as resp:
-            if resp.status != 200:
-                _LOGGER.error("Token refresh failed with status %s", resp.status)
-                raise InvalidAuth("Token refresh failed")
-            data = await resp.json()
-            _LOGGER.debug(
-                "Token refresh successful, new expiry in %s seconds",
-                data.get("expires_in"),
-            )
-            self._save_tokens(data)
+        try:
+            async with self._session.post(
+                    f"{self._base_url}{AUTH_PATH}", data=payload, timeout=10
+            ) as resp:
+                if resp.status in AUTH_REJECTED_STATUSES:
+                    _LOGGER.error("Token refresh refused with status %s", resp.status)
+                    raise InvalidAuth("Token refresh refused")
+                if resp.status != 200:
+                    _LOGGER.warning("Token refresh failed with status %s", resp.status)
+                    raise CannotConnect(f"Token refresh failed with status {resp.status}")
+                data = await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            _LOGGER.warning("Token refresh failed: %s", err)
+            raise CannotConnect("Token refresh failed") from err
+        if not isinstance(data, dict) or "access_token" not in data:
+            raise CannotConnect("Token refresh response without access token")
+        _LOGGER.debug(
+            "Token refresh successful, new expiry in %s seconds",
+            data.get("expires_in"),
+        )
+        self._save_tokens(data)
 
     # ---------- data endpoints ---------------------------------------------------
     async def async_get_all_homes(self) -> list[dict[str, Any]]:

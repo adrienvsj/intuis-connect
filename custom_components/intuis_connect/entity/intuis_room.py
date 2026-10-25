@@ -96,9 +96,11 @@ class IntuisRoom:
         # A room is heating if any of its NMH modules has radiator_state == "heating"
         # Also check if temperature is below target (heating should be active)
         heating = False
-        target_temp = data.get("therm_setpoint_temperature", 0.0)
-        current_temp = data.get("therm_measured_temperature", 0.0)
+        # The API may omit these or send null (pilot-wire rooms have no measurement)
+        target_temp = data.get("therm_setpoint_temperature")
+        current_temp = data.get("therm_measured_temperature")
         mode = data.get("therm_setpoint_mode", "unknown")
+        temps_known = target_temp is not None and current_temp is not None
         
         # Log all NMH modules' radiator_state for debugging
         nmh_modules_found = []
@@ -118,7 +120,7 @@ class IntuisRoom:
                     )
                 # Also check for "auto" state - if temp is below target and mode is active, heating is likely active
                 elif (module.radiator_state and module.radiator_state.lower() == "auto"
-                      and mode != API_MODE_OFF
+                      and mode != API_MODE_OFF and temps_known
                       and target_temp > 0 and current_temp < target_temp - HEATING_THRESHOLD_DELTA):
                     heating = True
                     _LOGGER.debug(
@@ -139,7 +141,8 @@ class IntuisRoom:
         
         # Fallback: if no NMH modules or radiator_state doesn't indicate heating,
         # check if temperature is below target and mode is not OFF (heating should be active)
-        if not heating and mode != API_MODE_OFF and target_temp > 0 and current_temp < target_temp - HEATING_THRESHOLD_DELTA:
+        if (not heating and mode != API_MODE_OFF and temps_known
+                and target_temp > 0 and current_temp < target_temp - HEATING_THRESHOLD_DELTA):
             # Temperature is significantly below target, likely heating
             _LOGGER.debug(
                 "Room %s: No heating detected from radiator_state, but temp (%.1f) < target (%.1f) - assuming heating",
@@ -152,8 +155,8 @@ class IntuisRoom:
             id=data["id"],
             name=definition.name,
             mode=data.get("therm_setpoint_mode", "unknown"),
-            temperature=data.get("therm_measured_temperature", 0.0),
-            target_temperature=data.get("therm_setpoint_temperature", 0.0),
+            temperature=current_temp,
+            target_temperature=target_temp,
             presence=data.get("presence", False),
             open_window=data.get("open_window", False),
             anticipation=data.get("anticipation", False),

@@ -45,10 +45,13 @@ class IntuisHomeConfig:
         if not isinstance(modules, list):
             raise ValueError("Modules data should be a list")
         
-        if len(modules) != 1:
-            raise ValueError("Expected exactly one module in the configuration data")
-        
+        if len(modules) > 1:
+            # Homes with several gateways: the sensors describe the first one
+            _LOGGER.debug("Config has %d modules, using the first one", len(modules))
+
         module = modules[0]
+        if not isinstance(module, dict):
+            raise ValueError("Module data should be a dictionary")
 
         home_config = cls(
             home_id=data.get("home_id"),

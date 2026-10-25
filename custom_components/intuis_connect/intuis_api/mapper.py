@@ -8,6 +8,9 @@ from ..utils.const import DEFAULT_UPDATE_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
+# Room IDs already reported as unknown, so the warning is logged once per room
+_skipped_rooms: set[str | None] = set()
+
 def extract_modules(home: dict[str, Any]) -> List[IntuisModule]:
     modules_raw: list[dict[str, Any]] = home.get("modules", [])
     # --- process modules ---
@@ -39,12 +42,19 @@ def extract_rooms(home: dict[str, Any],
     # --- process rooms ---
     data_by_room: dict[str, IntuisRoom] = {}
     for room in rooms_raw:
-        room_id = room["id"]
-        intuis_room: IntuisRoom = IntuisRoom.from_dict(
-            rooms_definitions.get(room_id),
-            room,
-            modules
-        )
+        room_id = room.get("id") if isinstance(room, dict) else None
+        definition = rooms_definitions.get(room_id) if room_id and rooms_definitions else None
+        if definition is None:
+            # A room created after setup (or a malformed entry) has no definition
+            # yet; skip it instead of failing the whole update. A reload adds it.
+            if room_id not in _skipped_rooms:
+                _skipped_rooms.add(room_id)
+                _LOGGER.warning(
+                    "Ignoring room %s: not in the home definition (reload the integration to add it)",
+                    room_id,
+                )
+            continue
+        intuis_room: IntuisRoom = IntuisRoom.from_dict(definition, room, modules)
 
         # ---- heating-minutes counter ---
         if room_id not in minutes_counter:

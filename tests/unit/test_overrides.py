@@ -534,6 +534,7 @@ class TestOverrideEdgeCases:
         mock_api,
         mock_save_overrides,
         indefinite_mode_options,
+        sample_room_data,
     ):
         """Override for room not in data_by_room should be cleaned up."""
         now = int(time.time())
@@ -556,10 +557,10 @@ class TestOverrideEdgeCases:
 
         mock_api.async_get_home_status.return_value = {"body": {"home": {"id": "home_123", "rooms": [], "modules": []}}}
 
-        # Return empty room data (room_999 doesn't exist)
+        # Another room is returned, room_999 is gone
         with patch(
             "custom_components.intuis_connect.intuis_data.extract_rooms",
-            return_value={},  # No rooms
+            return_value=sample_room_data,
         ), patch(
             "custom_components.intuis_connect.intuis_data.extract_modules",
             return_value={},
@@ -574,6 +575,47 @@ class TestOverrideEdgeCases:
 
         # Storage should be saved (override was cleaned up)
         mock_save_overrides.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_empty_room_list_keeps_overrides(
+        self,
+        intuis_data_factory,
+        mock_api,
+        mock_save_overrides,
+        default_options,
+    ):
+        """A response without any room is a glitch: overrides must survive it."""
+        now = int(time.time())
+        overrides = {
+            "room_123": {
+                "mode": API_MODE_MANUAL,
+                "temp": 23.0,
+                "end": now + 3600,
+                "sticky": True,
+                "last_reapply": now,
+            }
+        }
+        intuis_data = intuis_data_factory(
+            overrides=overrides,
+            options=default_options,
+            api=mock_api,
+            save_callback=mock_save_overrides,
+        )
+
+        with patch(
+            "custom_components.intuis_connect.intuis_data.extract_rooms",
+            return_value={},
+        ), patch(
+            "custom_components.intuis_connect.intuis_data.extract_modules",
+            return_value={},
+        ), patch(
+            "custom_components.intuis_connect.intuis_data.IntuisHomeConfig.from_dict",
+            return_value=MagicMock(),
+        ):
+            await intuis_data.async_update()
+
+        assert "room_123" in overrides
+        mock_save_overrides.assert_not_called()
 
         # API should NOT be called (room doesn't exist)
         mock_api.async_set_room_state.assert_not_called()

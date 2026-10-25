@@ -13,7 +13,7 @@ from homeassistant.components.climate import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
@@ -37,6 +37,11 @@ from .utils.helper import get_basic_utils
 _LOGGER = logging.getLogger(__name__)
 
 _PRESET_TO_FP = {PRESET_COMFORT: API_FP_COMFORT, PRESET_ECO: API_FP_ECO}
+
+# How long a value set from Home Assistant is shown before the cloud data takes
+# over again: it covers the refresh requested right after the command, which can
+# still return the previous state.
+OPTIMISTIC_HOLD_SECONDS = 30
 _FP_TO_PRESET = {API_FP_COMFORT: PRESET_COMFORT, API_FP_ECO: PRESET_ECO, API_FP_FROST: PRESET_PILOT_WIRE_FROST}
 
 
@@ -73,6 +78,33 @@ class IntuisConnectClimate(
         self._attr_hvac_mode: HVACMode | None = None
         self._attr_preset_mode: str | None = None
         self._attr_target_temperature: float | None = None
+        self._optimistic_until = 0.0
+        self._cancel_end_refresh: CALLBACK_TYPE | None = None
+
+    @property
+    def available(self) -> bool:
+        """Unavailable while the room is missing from the latest data."""
+        return super().available and self._get_room() is not None
+
+    def _hold_optimistic_state(self) -> None:
+        """Keep the values just set until fresh data can reflect them."""
+        self._optimistic_until = time.monotonic() + OPTIMISTIC_HOLD_SECONDS
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Let fresh data replace the values set from Home Assistant."""
+        if time.monotonic() >= self._optimistic_until:
+            self._attr_hvac_mode = None
+            self._attr_preset_mode = None
+            self._attr_target_temperature = None
+        super()._handle_coordinator_update()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel the pending end-of-override refresh."""
+        if self._cancel_end_refresh:
+            self._cancel_end_refresh()
+            self._cancel_end_refresh = None
+        await super().async_will_remove_from_hass()
 
     def _get_overrides(self) -> dict[str, dict]:
         data = self.hass.data.get(DOMAIN, {}).get(self._entry_id, {})
@@ -95,11 +127,17 @@ class IntuisConnectClimate(
         return default
 
     def _schedule_end_refresh(self, end_ts: int) -> None:
-        # Schedule a refresh slightly after end time
+        """Refresh slightly after the override ends (only the latest override counts)."""
+        if self._cancel_end_refresh:
+            self._cancel_end_refresh()
         delay = max(0, end_ts - int(time.time()) + 1)
-        def _cb(_now):
+
+        @callback
+        def _cb(_now) -> None:
+            self._cancel_end_refresh = None
             self.hass.async_create_task(self.coordinator.async_request_refresh())
-        async_call_later(self.hass, delay, _cb)
+
+        self._cancel_end_refresh = async_call_later(self.hass, delay, _cb)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -109,12 +147,14 @@ class IntuisConnectClimate(
     @property
     def current_temperature(self) -> StateType:
         """Return the current temperature."""
-        return self._get_room().temperature
+        room = self._get_room()
+        return room.temperature if room else None
 
     @property
     def target_temperature(self) -> StateType:
         """Return the target temperature."""
-        return self._get_room().target_temperature
+        room = self._get_room()
+        return room.target_temperature if room else None
 
     @property
     def hvac_mode(self) -> HVACMode | None:
@@ -125,8 +165,11 @@ class IntuisConnectClimate(
         # Check if boost is active first (detected via boost_status, not therm_setpoint_mode)
         if self._is_boost_active():
             return HVACMode.HEAT
-        
-        mode = self._get_room().mode
+
+        room = self._get_room()
+        if room is None:
+            return None
+        mode = room.mode
         if mode == API_MODE_OFF:
             return HVACMode.OFF
         if mode in (API_MODE_AUTO, API_MODE_HOME, API_MODE_HG):
@@ -226,21 +269,18 @@ class IntuisConnectClimate(
             return HVACAction.HEATING
         
         # Otherwise, use the room's heating status
-        return (
-            HVACAction.HEATING
-            if self._get_room().heating
-            else HVACAction.IDLE
-        )
+        return HVACAction.HEATING if room.heating else HVACAction.IDLE
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature."""
         temp = kwargs.get("temperature")
         if temp is None:
             return
-        await self._async_apply_manual(self._get_room().id, temp=float(temp))
+        await self._async_apply_manual(self._room.id, temp=float(temp))
         self._attr_target_temperature = temp
         self._attr_hvac_mode = HVACMode.HEAT
         self._attr_preset_mode = None
+        self._hold_optimistic_state()
         self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
@@ -283,7 +323,7 @@ class IntuisConnectClimate(
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """Set new hvac mode."""
-        room_id = self._get_room().id
+        room_id = self._room.id
         overrides = self._get_overrides()
         overrides_changed = False
 
@@ -312,12 +352,13 @@ class IntuisConnectClimate(
             if save_overrides:
                 await save_overrides()
 
+        self._hold_optimistic_state()
         self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new preset mode."""
-        room_id = self._get_room().id
+        room_id = self._room.id
         overrides = self._get_overrides()
         overrides_changed = False
 
@@ -380,6 +421,7 @@ class IntuisConnectClimate(
                 await save_overrides()
 
         self._attr_preset_mode = preset_mode
+        self._hold_optimistic_state()
         self.async_write_ha_state()
         await self.coordinator.async_request_refresh()
 
@@ -435,14 +477,14 @@ class IntuisPilotWireClimate(IntuisConnectClimate):
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         """HEAT means a manual Comfort order; other modes behave as for temperature rooms."""
         if hvac_mode == HVACMode.HEAT:
-            await self._async_apply_manual(self._get_room().id, fp=API_FP_COMFORT)
+            await self._async_apply_manual(self._room.id, fp=API_FP_COMFORT)
             await self.coordinator.async_request_refresh()
         else:
             await super().async_set_hvac_mode(hvac_mode)
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Send the pilot-wire order matching the preset."""
-        room_id = self._get_room().id
+        room_id = self._room.id
         if preset_mode == PRESET_PILOT_WIRE_FROST:
             await self._async_apply_frost_protect(room_id)
         else:

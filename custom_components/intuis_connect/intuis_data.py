@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .entity.intuis_home import IntuisHome
 from .entity.intuis_home_config import IntuisHomeConfig
@@ -63,7 +62,11 @@ class IntuisData:
         # Track the last "logical day" we processed (based on reset hour, not midnight)
         self._last_logical_day: str | None = None
         # sticky overrides: { room_id: { mode, temp, end, sticky, last_reapply } }
-        self._overrides: dict[str, dict] = overrides or {}
+        # Keep the caller's dict even when empty: climate entities write into the
+        # same object, so a copy would hide their overrides from this coordinator.
+        self._overrides: dict[str, dict] = overrides if overrides is not None else {}
+        # Last home config parsed successfully, reused when a config fetch fails
+        self._last_config: IntuisHomeConfig | None = None
         # Callback to get current options from config entry
         self._get_options = get_options or (lambda: {})
         # Callback to persist overrides to storage
@@ -149,8 +152,9 @@ class IntuisData:
         overrides_changed = False
         rooms_to_clear = []
 
-        # First, clean up orphaned overrides (rooms that no longer exist in API)
-        for room_id in list(self._overrides.keys()):
+        # First, clean up orphaned overrides (rooms that no longer exist in API).
+        # An empty room list is treated as a glitch, not as "every room was deleted".
+        for room_id in list(self._overrides.keys()) if data_by_room else []:
             if room_id not in data_by_room:
                 _LOGGER.warning(
                     "Removing orphaned override for room %s (room no longer in API response)",
@@ -241,13 +245,15 @@ class IntuisData:
         if overrides_changed and self._save_overrides:
             await self._save_overrides()
 
+        # The home config only feeds informational sensors: a failure here must
+        # not discard the room data fetched above.
         try:
-            config = IntuisHomeConfig.from_dict(await self._api.async_get_config())
-        except ValueError as err:
+            self._last_config = IntuisHomeConfig.from_dict(await self._api.async_get_config())
+        except (ValueError, APIError, CannotConnect, RateLimitError) as err:
             _LOGGER.warning(
-                "API returned empty config (no modules), skipping this cycle: %s", err
+                "Could not fetch the home config, keeping the previous one: %s", err
             )
-            raise UpdateFailed(f"Transient API config error: {err}") from err
+        config = self._last_config
 
         # Fetch energy data (daily kWh per room)
         await self._fetch_energy_data(data_by_room, now)

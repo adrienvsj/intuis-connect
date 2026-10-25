@@ -1,12 +1,8 @@
-colorlog
-homeassistant
-ruff
+# Development and test dependencies (Python 3.14).
+# The test harness pins the matching Home Assistant release and pytest stack:
+# bump it together with the Home Assistant version the integration targets.
+pytest-homeassistant-custom-component==0.13.375
+ruff==0.17.2
 
-# Testing
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.0.0
-pytest-mock>=3.10.0
-pytest-homeassistant-custom-component
-aioresponses>=0.7.4
-freezegun>=1.2.0
+# Coloured logs for scripts/develop
+colorlog

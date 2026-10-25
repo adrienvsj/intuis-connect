@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "F",       # pyflakes: undefined names, unused imports and variables
+    "E9",      # syntax errors
+    "I",       # import sorting
+    "UP",      # pyupgrade for the targeted Python version
+    "RUF100",  # unused noqa directives
+]

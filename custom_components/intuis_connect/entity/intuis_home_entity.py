@@ -17,11 +17,10 @@ from homeassistant.const import (
     UnitOfEnergy,
     UnitOfTime,
 )
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from ..entity.intuis_entity import IntuisDataUpdateCoordinator
-from ..utils.const import CONF_ENERGY_RESET_HOUR, DEFAULT_ENERGY_RESET_HOUR, DOMAIN
+from ..entity.intuis_entity import IntuisDataUpdateCoordinator, home_device_info
+from ..utils.const import CONF_ENERGY_RESET_HOUR, DEFAULT_ENERGY_RESET_HOUR
 from .intuis_home import IntuisHome
 from .intuis_module import NMGIntuisModule
 from .intuis_schedule import IntuisThermSchedule, IntuisThermZone, IntuisTimetable
@@ -34,6 +33,8 @@ MINUTES_IN_WEEK = 7 * 24 * 60  # 10080
 
 class IntuisHomeEntity(CoordinatorEntity[IntuisDataUpdateCoordinator], SensorEntity):
     """Base class for Intuis home-level entities."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
             self,
@@ -50,13 +51,7 @@ class IntuisHomeEntity(CoordinatorEntity[IntuisDataUpdateCoordinator], SensorEnt
         self._home_id = home_id
         self._attr_name = f"Intuis Home {home_property}"
         self._attr_unique_id = f"intuis_{home_id}_home_{entity_type}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-            suggested_area="Home",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
         self._attr_icon = icon
         self._property = home_property
         self._attr_available = available
@@ -249,12 +244,7 @@ class IntuisCurrentZoneSensor(CoordinatorEntity[IntuisDataUpdateCoordinator], Se
         self._home_id = home_id
         self._attr_name = "Current Zone"
         self._attr_unique_id = f"intuis_{home_id}_current_zone"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
 
     def _get_home(self) -> IntuisHome | None:
         """Get the home data from coordinator."""
@@ -322,12 +312,7 @@ class IntuisNextZoneChangeSensor(CoordinatorEntity[IntuisDataUpdateCoordinator],
         self._home_id = home_id
         self._attr_name = "Next Zone Change"
         self._attr_unique_id = f"intuis_{home_id}_next_zone_change"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
 
     def _get_home(self) -> IntuisHome | None:
         """Get the home data from coordinator."""
@@ -396,12 +381,7 @@ class IntuisScheduleSummarySensor(CoordinatorEntity[IntuisDataUpdateCoordinator]
         self._schedule_name = schedule.name or f"Schedule {schedule.id}"
         self._attr_name = f"Schedule {self._schedule_name}"
         self._attr_unique_id = f"intuis_{home_id}_schedule_{schedule.id}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
 
     def _get_home(self) -> IntuisHome | None:
         """Get the home data from coordinator."""
@@ -502,6 +482,8 @@ class IntuisScheduleSummarySensor(CoordinatorEntity[IntuisDataUpdateCoordinator]
 class GatewayWifiStrengthSensor(CoordinatorEntity[IntuisDataUpdateCoordinator], SensorEntity):
     """Sensor showing gateway WiFi signal strength."""
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
     _attr_icon = "mdi:wifi"
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
@@ -519,12 +501,7 @@ class GatewayWifiStrengthSensor(CoordinatorEntity[IntuisDataUpdateCoordinator], 
         self._home_id = home_id
         self._attr_name = "Gateway WiFi Strength"
         self._attr_unique_id = f"intuis_{home_id}_gateway_wifi_strength"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
 
     def _get_gateway(self) -> NMGIntuisModule | None:
         """Get the gateway module from coordinator data."""
@@ -544,6 +521,8 @@ class GatewayWifiStrengthSensor(CoordinatorEntity[IntuisDataUpdateCoordinator], 
 class GatewayUptimeSensor(CoordinatorEntity[IntuisDataUpdateCoordinator], SensorEntity):
     """Sensor showing gateway uptime."""
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
     _attr_icon = "mdi:clock-check-outline"
     _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.DURATION
@@ -561,12 +540,7 @@ class GatewayUptimeSensor(CoordinatorEntity[IntuisDataUpdateCoordinator], Sensor
         self._home_id = home_id
         self._attr_name = "Gateway Uptime"
         self._attr_unique_id = f"intuis_{home_id}_gateway_uptime"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
 
     def _get_gateway(self) -> NMGIntuisModule | None:
         """Get the gateway module from coordinator data."""
@@ -614,12 +588,7 @@ class GatewayFirmwareSensor(CoordinatorEntity[IntuisDataUpdateCoordinator], Sens
         self._home_id = home_id
         self._attr_name = "Gateway Firmware"
         self._attr_unique_id = f"intuis_{home_id}_gateway_firmware"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
 
     def _get_gateway(self) -> NMGIntuisModule | None:
         """Get the gateway module from coordinator data."""
@@ -660,12 +629,7 @@ class IntuisHomeEnergySensor(CoordinatorEntity[IntuisDataUpdateCoordinator], Sen
         self._home_id = home_id
         self._attr_name = "Energy Today"
         self._attr_unique_id = f"intuis_{home_id}_home_energy_today"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
         # Daily max tracking (same logic as room sensors)
         self._daily_max_energy: float = 0.0
         self._last_logical_day: str | None = None

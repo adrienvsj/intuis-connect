@@ -102,6 +102,9 @@ class IntuisConnectClimate(
         CoordinatorEntity.__init__(self, coordinator)
         ClimateEntity.__init__(self)
         IntuisEntity.__init__(self, coordinator, room, home_id, f"{room.name} Climate", "climate")
+        # Main feature of the room device: shown with the device (room) name only.
+        # Existing entity_ids are kept by the registry.
+        self._attr_name = None
         self._home_id = home_id
         self._api = api
         self._entry_id = entry_id

@@ -11,7 +11,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .entity.intuis_entity import IntuisDataUpdateCoordinator
+from .entity.intuis_entity import IntuisDataUpdateCoordinator, home_device_info
 from .entity.intuis_schedule import IntuisThermSchedule
 from .intuis_api.api import IntuisAPI
 from .utils.const import DOMAIN
@@ -78,12 +78,7 @@ class IntuisScheduleSelect(CoordinatorEntity[IntuisDataUpdateCoordinator], Selec
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info for the home."""
-        return DeviceInfo(
-            identifiers={(DOMAIN, f"{self._home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        return home_device_info(self._home_id, self.coordinator)
 
     @property
     def current_option(self) -> str | None:

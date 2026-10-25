@@ -9,11 +9,10 @@ import homeassistant.util.dt as dt_util
 from homeassistant.components.calendar import CalendarEntity, CalendarEvent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .entity.intuis_entity import IntuisDataUpdateCoordinator
+from .entity.intuis_entity import IntuisDataUpdateCoordinator, home_device_info
 from .entity.intuis_home import IntuisHome
 from .entity.intuis_schedule import IntuisThermSchedule, IntuisThermZone
 from .intuis_api.api import IntuisAPI
@@ -69,12 +68,7 @@ class IntuisScheduleCalendar(
 
         # Use schedule_id for unique_id to be robust against renames
         self._attr_unique_id = f"intuis_{home_id}_schedule_{schedule.id}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{home_id}_home")},
-            name="Intuis Home",
-            manufacturer="Muller Intuitiv (Netatmo)",
-            model="Home Controller",
-        )
+        self._attr_device_info = home_device_info(home_id, coordinator)
 
     @property
     def name(self) -> str:

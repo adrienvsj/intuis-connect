@@ -10,6 +10,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -241,6 +243,24 @@ class IntuisPlanningView(HomeAssistantView):
         )
 
 
+@callback
+def _async_remove_legacy_home_device(hass: HomeAssistant, entry: ConfigEntry, home_id: str) -> None:
+    """Remove the second "Intuis Home" device used by versions before 2.2.
+
+    Its entities now belong to the `{home_id}_home` device. It is only removed
+    once no entity references it (removing a device removes its entities).
+    """
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_device_by_identifier((DOMAIN, home_id), entry.entry_id)
+    if device is None:
+        return
+    if er.async_entries_for_device(er.async_get(hass), device.id, include_disabled_entities=True):
+        _LOGGER.debug("Legacy home device %s still has entities, keeping it", device.id)
+        return
+    dev_reg.async_remove_device(device.id)
+    _LOGGER.info("Removed the duplicate legacy home device")
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Intuis Connect from a config entry."""
     _LOGGER.debug("Setting up entry %s", entry.entry_id)
@@ -393,6 +413,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # ---------- setup platforms ----------------------------------------------------
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_remove_legacy_home_device(hass, entry, intuis_home.id)
 
     # ---------- register services -------------------------------------------------
     await async_register_services(hass, entry)

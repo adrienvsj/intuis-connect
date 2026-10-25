@@ -13,7 +13,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .entity.intuis_entity import IntuisDataUpdateCoordinator
+from .entity.intuis_entity import IntuisDataUpdateCoordinator, home_device_info
 from .entity.intuis_schedule import (
     IntuisRoomTemperature,
     IntuisThermSchedule,
@@ -42,11 +42,7 @@ async def async_setup_entry(
     # schedule devices can always be linked to it (same fields as the home
     # sensors' device info).
     dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, f"{intuis_home.id}_home")},
-        name="Intuis Home",
-        manufacturer="Muller Intuitiv (Netatmo)",
-        model="Home Controller",
+        config_entry_id=entry.entry_id, **home_device_info(intuis_home.id, coordinator)
     )
 
     # Track current entities for dynamic management

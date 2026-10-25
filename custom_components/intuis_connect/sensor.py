@@ -13,7 +13,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfTemperature
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .entity.intuis_entity import IntuisEntity
+from .entity.intuis_entity import IntuisEntity, home_device_info
 from .entity.intuis_home_entity import provide_home_sensors
 from .entity.intuis_module import NMHIntuisModule
 from .entity.intuis_room import IntuisRoom
@@ -111,6 +111,8 @@ class IntuisSensor(CoordinatorEntity, SensorEntity, IntuisEntity):
 
 class IntuisMullerTypeSensor(IntuisSensor):
     """Specialized sensor for device type."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, home_id: str, room: IntuisRoom) -> None:
         """Initialize the muller type sensor."""
@@ -541,6 +543,8 @@ class IntuisScheduledTempSensor(IntuisSensor):
 class ModuleLastSeenSensor(IntuisSensor):
     """Sensor showing when a module was last seen."""
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
     def __init__(
             self,
             coordinator,
@@ -651,13 +655,8 @@ class IntuisScheduleDataSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def device_info(self):
-        """Return device info for this entity."""
-        return {
-            "identifiers": {(DOMAIN, self._home_id)},
-            "name": "Intuis Home",
-            "manufacturer": "Muller / Netatmo",
-            "model": "Intuis",
-        }
+        """Return device info for this entity (the home device)."""
+        return home_device_info(self._home_id, self.coordinator)
 
     @property
     def native_value(self) -> str | None:
@@ -712,153 +711,3 @@ class IntuisScheduleDataSensor(CoordinatorEntity, SensorEntity):
             "schedules": schedules_summary,
             "active_schedule": self.native_value
         }
-
-
-class IntuisIndividualScheduleSensor(CoordinatorEntity, SensorEntity):
-    """Sensor exposing individual schedule data for UI integration.
-    
-    Each schedule gets its own sensor with weekly_timetable, zones, and 
-    room_temperatures as attributes. The entity_id is based on schedule_id
-    to be robust against renames.
-    """
-
-    def __init__(
-            self,
-            coordinator,
-            home_id: str,
-            intuis_home,
-            schedule: IntuisThermSchedule,
-    ) -> None:
-        """Initialize the individual schedule sensor."""
-        super().__init__(coordinator)
-        self._home_id = home_id
-        self._intuis_home = intuis_home
-        self._schedule_id = schedule.id
-        # Use schedule_id for unique_id to be robust against renames
-        self._attr_unique_id = f"intuis_{home_id}_schedule_{schedule.id}"
-        self._attr_icon = "mdi:calendar-week"
-
-    def _get_schedule(self) -> IntuisThermSchedule | None:
-        """Get the current schedule from coordinator data."""
-        home = self.coordinator.data.get("intuis_home") if isinstance(self.coordinator.data, dict) else self.coordinator.data
-        if not home or not hasattr(home, 'schedules') or not home.schedules:
-            return None
-        for schedule in home.schedules:
-            if isinstance(schedule, IntuisThermSchedule) and schedule.id == self._schedule_id:
-                return schedule
-        return None
-
-    def _get_all_schedules(self) -> list:
-        """Get all schedules for available_schedules attribute."""
-        home = self.coordinator.data.get("intuis_home") if isinstance(self.coordinator.data, dict) else self.coordinator.data
-        if not home or not hasattr(home, 'schedules') or not home.schedules:
-            return []
-        result = []
-        for schedule in home.schedules:
-            if isinstance(schedule, IntuisThermSchedule):
-                result.append({
-                    "id": schedule.id,
-                    "name": schedule.name,
-                    "selected": schedule.selected
-                })
-        return result
-
-    @property
-    def name(self) -> str:
-        """Return the name of the schedule, updated dynamically."""
-        schedule = self._get_schedule()
-        if schedule:
-            return f"Schedule {schedule.name}"
-        return f"Schedule {self._schedule_id[-6:]}"
-
-    @property
-    def device_info(self):
-        """Return device info for this entity."""
-        return {
-            "identifiers": {(DOMAIN, self._home_id)},
-            "name": "Intuis Home",
-            "manufacturer": "Muller / Netatmo",
-            "model": "Intuis",
-        }
-
-    @property
-    def native_value(self) -> str | None:
-        """Return the schedule name as state."""
-        schedule = self._get_schedule()
-        return schedule.name if schedule else None
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return schedule data as attributes compatible with Node-RED format."""
-        schedule = self._get_schedule()
-        if not schedule:
-            return {}
-        
-        home = self.coordinator.data.get("intuis_home") if isinstance(self.coordinator.data, dict) else self.coordinator.data
-        
-        # Build rooms map for room names
-        rooms_map = {}
-        if home and hasattr(home, 'rooms') and home.rooms:
-            for room_id, room in home.rooms.items():
-                rooms_map[str(room_id)] = room.name if hasattr(room, 'name') else str(room_id)
-        
-        # Convert timetable to weekly format (Monday, Tuesday, etc.)
-        weekly_timetable = self._convert_to_weekly_timetable(schedule)
-        
-        # Build zones with room_temperatures as dict (room_id -> temp)
-        zones = []
-        for zone in schedule.zones:
-            if isinstance(zone, IntuisThermZone):
-                room_temperatures = {}
-                for rt in zone.rooms_temp:
-                    room_temperatures[str(rt.room_id)] = rt.temp
-                zones.append({
-                    "id": zone.id,
-                    "name": zone.name,
-                    "type": zone.type,
-                    "room_temperatures": room_temperatures
-                })
-        
-        return {
-            "schedule_id": schedule.id,
-            "schedule_name": schedule.name,
-            "is_active": schedule.selected,
-            "is_default": schedule.default,
-            "away_temperature": schedule.away_temp,
-            "frost_guard_temperature": schedule.hg_temp,
-            "weekly_timetable": weekly_timetable,
-            "zones": zones,
-            "zones_count": len(zones),
-            "available_schedules": self._get_all_schedules(),
-        }
-
-    def _convert_to_weekly_timetable(self, schedule: IntuisThermSchedule) -> dict:
-        """Convert m_offset timetable to weekly format with day names."""
-        DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        
-        # Build zone_id to name map
-        zone_names = {}
-        for zone in schedule.zones:
-            if isinstance(zone, IntuisThermZone):
-                zone_names[zone.id] = zone.name
-        
-        # Group timetable entries by day
-        weekly = {day: [] for day in DAY_NAMES}
-        
-        for tt in sorted(schedule.timetables, key=lambda t: t.m_offset):
-            day_index = tt.m_offset // MINUTES_PER_DAY
-            if 0 <= day_index < 7:
-                minutes_in_day = tt.m_offset % MINUTES_PER_DAY
-                hours = minutes_in_day // 60
-                mins = minutes_in_day % 60
-                time_str = f"{hours:02d}:{mins:02d}"
-                zone_name = zone_names.get(tt.zone_id, f"Zone {tt.zone_id}")
-                
-                weekly[DAY_NAMES[day_index]].append({
-                    "time": time_str,
-                    "zone": zone_name
-                })
-        
-        # Return all 7 days (even empty) so the schedule card can always access weekly_timetable['Monday'] etc.
-        return weekly
-

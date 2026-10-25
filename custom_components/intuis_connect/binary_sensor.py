@@ -6,6 +6,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -94,6 +95,8 @@ class AnticipationSensor(_Base):
 
 class ModuleReachableSensor(_Base):
     """Binary sensor for NMH module reachability."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
             self,

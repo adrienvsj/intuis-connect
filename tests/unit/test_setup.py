@@ -189,3 +189,45 @@ async def test_schedule_devices_link_to_home(hass, mock_api, no_http):
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_existing_installation_keeps_ids_and_cleans_devices(hass, mock_api, no_http):
+    """2.2 display changes keep entity_ids; the duplicate home device goes away."""
+    from homeassistant.const import EntityCategory
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+
+    entry = _entry(hass)
+    ent_reg, dev_reg = er.async_get(hass), dr.async_get(hass)
+    legacy_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, HOME_ID)}, name="Intuis Home"
+    )
+    previous = {
+        ("climate", f"intuis_{HOME_ID}_room_1_climate"): "salon_salon_climate",
+        ("select", f"intuis_{HOME_ID}_schedule_select"): "intuis_home_active_schedule",
+        ("sensor", f"intuis_{HOME_ID}_schedule_data"): "intuis_home_intuis_schedule_data",
+    }
+    for (domain, unique_id), object_id in previous.items():
+        ent_reg.async_get_or_create(
+            domain, DOMAIN, unique_id, suggested_object_id=object_id, config_entry=entry,
+            device_id=legacy_device.id if domain == "sensor" else None,
+        )
+
+    with patch("custom_components.intuis_connect.async_generate_services_yaml", AsyncMock()):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    for (domain, unique_id), object_id in previous.items():
+        assert ent_reg.async_get_entity_id(domain, DOMAIN, unique_id) == f"{domain}.{object_id}"
+    assert hass.states.get("climate.salon_salon_climate").name == "Salon"
+
+    home = dev_reg.async_get_device_by_identifier((DOMAIN, f"{HOME_ID}_home"), entry.entry_id)
+    assert home.name == "Maison"
+    assert dev_reg.async_get(legacy_device.id) is None
+    data_sensor = ent_reg.async_get("sensor.intuis_home_intuis_schedule_data")
+    assert data_sensor.device_id == home.id
+    wifi = ent_reg.async_get_entity_id("sensor", DOMAIN, f"intuis_{HOME_ID}_gateway_wifi_strength")
+    assert ent_reg.async_get(wifi).entity_category is EntityCategory.DIAGNOSTIC
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()

@@ -15,5 +15,3 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
-          # Brand images are only required for the HACS default store
-          ignore: brands

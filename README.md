@@ -576,6 +576,21 @@ When enabled, the integration automatically re-applies manual overrides before t
 
 ---
 
+## History
+
+The full commit history of the original project is part of this repository.
+Its releases stay on the original repository: GitHub does not copy releases
+to a fork, and recreating them here would date them today and crowd the
+version list in HACS.
+
+| Versions | Where | Highlights |
+|----------|-------|------------|
+| 2.1.0 and later | [This fork's releases](https://github.com/adrienvsj/intuis-connect/releases) | See [About this fork](#about-this-fork) |
+| 2.0.0-beta (March 2026) | [Original releases](https://github.com/antoine-pyre/intuis-connect/releases) | Last upstream release, merged into 2.1.0 |
+| 1.2.0 to 1.9.9 (August 2025 to March 2026) | [Original releases](https://github.com/antoine-pyre/intuis-connect/releases) | First public release and the 1.x line |
+
+---
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

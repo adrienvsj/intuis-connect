@@ -5,12 +5,26 @@
 [![HACS Badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/v/release/adrienvsj/intuis-connect)](https://github.com/adrienvsj/intuis-connect/releases)
 
+> [!IMPORTANT]
+> **This fork is retired. Development continues in the original repository,
+> [antoine-pyre/intuis-connect](https://github.com/antoine-pyre/intuis-connect).**
+>
+> Its 2.1.0 beta already includes the main fixes from this fork and the
+> pilot-wire (FP4) support. Install it from there, and report issues and send
+> pull requests there. 2.2.3 is the last release of this fork: this repository
+> stays available, but it gets no new versions.
+>
+> If you installed this fork, see
+> [Switching to the original repository](#switching-to-the-original-repository).
+
 ---
 
-## About this fork
+## About this fork (retired)
 
-This is a maintained fork of [antoine-pyre/intuis-connect](https://github.com/antoine-pyre/intuis-connect),
-whose last release is `2.0.0-beta` (March 2026). Version **2.1.0** brings together:
+This fork of [antoine-pyre/intuis-connect](https://github.com/antoine-pyre/intuis-connect)
+was maintained while the original project had no release after `2.0.0-beta`
+(March 2026). It has since merged back: the original project adapted the main
+fixes below in its own releases. Version **2.1.0** of this fork brought together:
 
 - the upstream `2.0.0-beta` code and its heating-detection fix;
 - hourly energy statistics and energy cost tracking by
@@ -32,8 +46,11 @@ Version **2.2.1** adds the Intuis icon and logo, with a dark-theme logo. Home
 Assistant 2026.10 and later shows them from the integration's own `brand`
 folder, instead of the "icon not available" placeholder.
 
-Issues and pull requests are welcome on
-[this repository](https://github.com/adrienvsj/intuis-connect/issues).
+Version **2.2.3** only announces the end of this fork. It has no change to
+the integration.
+
+Issues and pull requests now go to
+[the original repository](https://github.com/antoine-pyre/intuis-connect/issues).
 When reporting a problem, attach the integration diagnostics
 (**Settings → Devices & services → Intuis Connect → ⋮ → Download diagnostics**):
 credentials, email and location are removed from it.
@@ -59,20 +76,46 @@ credentials, email and location are removed from it.
 
 ## Installation
 
-> **Requires Home Assistant 2026.10 or later** (the version the tests run on). Install it through HACS as a custom repository.
+> Install the **original repository**, not this retired fork. Its README lists
+> the supported Home Assistant versions. Install it through HACS as a custom
+> repository.
 
 ### One-Click Install (Recommended)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=adrienvsj&repository=intuis-connect&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=antoine-pyre&repository=intuis-connect&category=integration)
 
 ### Manual HACS Install
 
 1. Open **HACS → Integrations**
 2. Click **⋮** → **Custom repositories**
 3. Add:
-   - URL: `https://github.com/adrienvsj/intuis-connect`
+   - URL: `https://github.com/antoine-pyre/intuis-connect`
    - Category: **Integration**
 4. Search for "Intuis Connect" → **Download** → **Restart** Home Assistant
+
+### Switching to the original repository
+
+If you installed this fork through HACS:
+
+1. Make a Home Assistant backup (**Settings → System → Backups**).
+2. In HACS, open **Intuis Connect** from this fork → **⋮** → **Remove**. This
+   removes the integration files. Your Intuis Connect configuration stays in
+   Home Assistant.
+3. Add `https://github.com/antoine-pyre/intuis-connect` as a custom repository
+   (category **Integration**).
+4. Download version **2.1.0-beta or later**. Pilot-wire (FP4) rooms need at
+   least this version. If HACS only offers older versions, choose
+   **Need a different version?** in the download dialog.
+5. Restart Home Assistant.
+
+What to expect. This path has not been tested yet: please report what you
+see on the original repository.
+
+- Room, home and schedule entities use the same unique IDs in both versions,
+  so they should keep their entity IDs, history and automations.
+- Energy cost sensors are different entities in the original version
+  (`…_hourly_cost` instead of `…_cost`). Hourly energy statistics are also
+  stored differently. Check the Energy dashboard after switching.
 
 ### Configuration
 
@@ -585,7 +628,8 @@ version list in HACS.
 
 | Versions | Where | Highlights |
 |----------|-------|------------|
-| 2.1.0 and later | [This fork's releases](https://github.com/adrienvsj/intuis-connect/releases) | See [About this fork](#about-this-fork) |
+| 2.0.1 and later (November 2026) | [Original releases](https://github.com/antoine-pyre/intuis-connect/releases) | Development resumed upstream and continues there |
+| 2.1.0 to 2.2.3 (October to November 2026) | [This fork's releases](https://github.com/adrienvsj/intuis-connect/releases) | See [About this fork](#about-this-fork-retired). 2.2.3 is the last one |
 | 2.0.0-beta (March 2026) | [Original releases](https://github.com/antoine-pyre/intuis-connect/releases) | Last upstream release, merged into 2.1.0 |
 | 1.2.0 to 1.9.9 (August 2025 to March 2026) | [Original releases](https://github.com/antoine-pyre/intuis-connect/releases) | First public release and the 1.x line |
 
@@ -601,6 +645,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 - 2.0.0 changes by [sremy91](https://github.com/sremy91)
 - Hourly energy statistics and energy cost by [TheFab21](https://github.com/TheFab21)
 - Pilot-wire (FP4) support by [apeyrat](https://github.com/apeyrat)
-- Fork maintained by [adrienvsj](https://github.com/adrienvsj)
+- Fork maintained by [adrienvsj](https://github.com/adrienvsj) (2.1.0 to 2.2.3, now retired)
 
 Based on reverse-engineering of the Intuis/Netatmo API.

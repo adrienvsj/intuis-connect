@@ -95,27 +95,42 @@ credentials, email and location are removed from it.
 
 ### Switching to the original repository
 
-If you installed this fork through HACS:
+HACS (the Marketplace since Home Assistant 2026.11) does not let you remove
+this fork while Intuis Connect is set up. You have to delete the integration
+and add it again. Home Assistant keeps the deleted entities and devices for 30
+days, and gives them back their entity IDs, areas and names when the
+integration comes back. This was tested on Home Assistant 2026.11.1.
 
 1. Make a Home Assistant backup (**Settings → System → Backups**).
-2. In HACS, open **Intuis Connect** from this fork → **⋮** → **Remove**. This
-   removes the integration files. Your Intuis Connect configuration stays in
+2. Write down your Intuis Connect options (**Settings → Devices & services →
+   Intuis Connect → Configure**). You will enter them again in step 7.
+3. Delete the integration: **Settings → Devices & services → Intuis Connect →
+   ⋮ → Delete**.
+4. In HACS, open **Intuis Connect** from this fork → **⋮** → **Remove**.
+5. Add `https://github.com/antoine-pyre/intuis-connect` as a custom repository
+   (category **Integration**), then download version **2.1.0-beta or later**.
+   Pilot-wire (FP4) rooms need at least this version. If HACS only offers
+   older versions, choose **Need a different version?** in the download
+   dialog.
+6. Restart Home Assistant.
+7. Add **Intuis Connect** again with your Intuis account, and enter your
+   options. Leave **Import energy history** off: the history is already in
    Home Assistant.
-3. Add `https://github.com/antoine-pyre/intuis-connect` as a custom repository
-   (category **Integration**).
-4. Download version **2.1.0-beta or later**. Pilot-wire (FP4) rooms need at
-   least this version. If HACS only offers older versions, choose
-   **Need a different version?** in the download dialog.
-5. Restart Home Assistant.
 
-What to expect. This path has not been tested yet: please report what you
-see on the original repository.
+What to expect:
 
-- Room, home and schedule entities use the same unique IDs in both versions,
-  so they should keep their entity IDs, history and automations.
-- Energy cost sensors are different entities in the original version
-  (`…_hourly_cost` instead of `…_cost`). Hourly energy statistics are also
-  stored differently. Check the Energy dashboard after switching.
+- Rooms, the home and schedules come back with the same devices, areas and
+  entity IDs, so history, dashboards and automations keep working.
+- Climate entities may show their name twice (for example
+  "Chambre Chambre Climate"). In the entity settings, turn on
+  **Use device name** to get "Chambre" back.
+- The daily energy sensors start again from 0. Home Assistant treats that as
+  a meter reset, so the Energy dashboard shows no negative consumption, but
+  the day of the switch may be incomplete.
+- In the original version, hourly energy statistics are optional and stored
+  as separate statistics, and energy cost sensors are different entities
+  (`…_hourly_cost` instead of `…_cost`).
+- Please report problems on the original repository.
 
 ### Configuration
 
